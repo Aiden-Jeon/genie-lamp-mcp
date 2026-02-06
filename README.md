@@ -5,6 +5,69 @@ A comprehensive Model Context Protocol (MCP) server for Databricks Genie that en
 - **Conversational Queries** - Ask questions and get SQL results with automatic polling
 - **LLM-Powered Config Generation** - Generate Genie space configurations from natural language requirements
 
+## Quick Start
+
+Get started in 5 minutes:
+
+### Prerequisites
+
+- Python 3.10 or higher
+- Databricks workspace with Genie enabled
+- SQL warehouse ID
+- Authentication credentials (PAT or OAuth M2M)
+
+### Quick Install
+
+Use the automated installation script:
+
+```bash
+# Clone the repository
+cd genie-mcp-server
+
+# Run the install script (handles everything)
+./install.sh
+```
+
+The script will:
+- Check Python version
+- Create virtual environment
+- Install dependencies
+- Interactively configure Databricks authentication
+- Auto-detect and select from your Databricks CLI profiles
+- Set up .env configuration file
+- Verify installation
+
+### Quick Configure
+
+If already installed, configure anytime:
+
+```bash
+./configure.sh
+```
+
+This will interactively guide you through:
+- Selecting authentication method (CLI/PAT/OAuth)
+- Entering workspace URL
+- Setting up credentials
+- Configuring timeouts and endpoints
+
+### Test & Verify
+
+```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# Check imports
+python -c "from genie_mcp_server import config; print('✓ Config OK')"
+```
+
+### First Query
+
+After setup, ask Claude:
+> "List all Genie spaces in my workspace"
+
+Claude will use the `list_genie_spaces` tool automatically.
+
 ## Features
 
 ### Space Management (5 tools)
@@ -26,15 +89,31 @@ A comprehensive Model Context Protocol (MCP) server for Databricks Genie that en
 - `validate_space_config` - Validate a configuration for errors and quality
 - `extract_table_metadata` - Extract Unity Catalog table metadata for context
 
+**Key Capabilities:**
+- Automatic rate limiting (5 requests/minute)
+- Async polling for long-running queries
+- Multi-layer configuration validation
+- LLM-powered config generation via serving endpoints
+
 ## Installation
 
-### Prerequisites
-- Python 3.10 or higher
-- Databricks workspace with Genie enabled
-- SQL warehouse ID
-- Authentication credentials (PAT or OAuth M2M)
+### Quick Install (Recommended)
 
-### Install from source
+Use the automated installation script:
+
+```bash
+# Clone the repository
+cd genie-mcp-server
+
+# Run the install script
+./install.sh
+```
+
+The script handles: Python version check, virtual environment creation, dependency installation, and interactive configuration setup with Databricks CLI profile detection.
+
+### Manual Install
+
+If you prefer manual installation:
 
 ```bash
 # Clone the repository
@@ -49,9 +128,46 @@ pip install -e .
 
 # For development
 pip install -e ".[dev]"
+
+# Copy environment template
+cp .env.example .env
+```
+
+### Non-Interactive Setup
+
+For CI/CD or automated setups, create `.env` before running:
+
+```bash
+cat > .env << EOF
+DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
+# CLI auth - no token needed
+DATABRICKS_TIMEOUT_SECONDS=300
+DATABRICKS_POLL_INTERVAL_SECONDS=2
+DATABRICKS_MAX_RETRIES=3
+DATABRICKS_SERVING_ENDPOINT_NAME=databricks-dbrx-instruct
+EOF
+
+./install.sh
 ```
 
 ## Configuration
+
+### Interactive Configuration (Recommended)
+
+Use the configuration script for guided setup:
+
+```bash
+./configure.sh
+```
+
+The script will:
+- Detect Databricks CLI and offer to use its authentication
+- Interactively prompt for workspace URL and credentials
+- Set up all configuration options with sensible defaults
+- Validate authentication if using Databricks CLI
+- Backup existing `.env` to `.env.backup` before changes
+
+### Manual Configuration
 
 Create a `.env` file in the project root:
 
@@ -66,14 +182,17 @@ Edit `.env` with your Databricks credentials:
 DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
 
 # Choose one authentication method:
-# Option 1: Personal Access Token
+# Option 1: Databricks CLI (recommended - no credentials needed)
+# Install: pip install databricks-cli
+# Authenticate: databricks auth login
+# Then omit DATABRICKS_TOKEN and CLIENT credentials below
+
+# Option 2: Personal Access Token
 DATABRICKS_TOKEN=dapi...
 
-# Option 2: OAuth M2M Service Principal
+# Option 3: OAuth M2M Service Principal
 # DATABRICKS_CLIENT_ID=your-client-id
 # DATABRICKS_CLIENT_SECRET=your-client-secret
-
-# Option 3: Omit both to use Databricks CLI default auth
 
 # Optional
 DATABRICKS_TIMEOUT_SECONDS=300
@@ -81,29 +200,43 @@ DATABRICKS_POLL_INTERVAL_SECONDS=2
 DATABRICKS_SERVING_ENDPOINT_NAME=databricks-dbrx-instruct
 ```
 
-## Running the Server
+### Authentication Methods
 
-### Standalone
+**Databricks CLI (Recommended)**
+- No credentials in `.env` file
+- Uses your existing Databricks authentication
+- Supports SSO, MFA, and multiple profiles
+- Automatic token refresh
+- Setup: `pip install databricks-cli && databricks auth login`
 
-```bash
-# Activate virtual environment
-source .venv/bin/activate
+**Personal Access Token**
+- Simple to set up
+- Good for development
+- Generate in Databricks workspace: User Settings → Access Tokens
+- Add to `.env`: `DATABRICKS_TOKEN=dapi...`
 
-# Run the server
-genie-mcp-server
-```
+**OAuth M2M Service Principal**
+- For production/automated workflows
+- Fine-grained permissions and audit logging
+- Requires service principal setup in Databricks
+- Add to `.env`: `DATABRICKS_CLIENT_ID` and `DATABRICKS_CLIENT_SECRET`
 
-The server will start and communicate via stdio (standard input/output).
+## Usage with Claude Desktop
 
-### With Claude Desktop
+### Configuration File Location
 
-Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+### Add MCP Server
+
+Edit the configuration file:
 
 ```json
 {
   "mcpServers": {
     "genie": {
-      "command": "/path/to/genie-mcp-server/.venv/bin/python",
+      "command": "/absolute/path/to/genie-mcp-server/.venv/bin/python",
       "args": ["-m", "genie_mcp_server.server"],
       "env": {
         "DATABRICKS_HOST": "https://your-workspace.cloud.databricks.com",
@@ -114,11 +247,260 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 }
 ```
 
-Restart Claude Desktop and the tools will be available.
+### Restart and Verify
+
+1. Restart Claude Desktop
+2. Verify tools are available - you should see 13 Genie tools in Claude
+3. Test with: "List all Genie spaces in my workspace"
+
+## API Reference
+
+### Summary of Tools
+
+| Tool | Category | Description |
+|------|----------|-------------|
+| `create_genie_space` | Space Management | Create a new Genie space from JSON configuration |
+| `list_genie_spaces` | Space Management | List all Genie spaces in the workspace |
+| `get_genie_space` | Space Management | Get details of a specific space |
+| `update_genie_space` | Space Management | Update an existing space |
+| `delete_genie_space` | Space Management | Delete a space (soft delete) |
+| `ask_genie` | Conversation/Query | Ask a question and wait for results (with rate limiting) |
+| `continue_conversation` | Conversation/Query | Send a follow-up question in an existing conversation |
+| `get_query_results` | Conversation/Query | Fetch query results from a completed message |
+| `list_conversations` | Conversation/Query | List conversations in a space |
+| `get_conversation_history` | Conversation/Query | Get all messages in a conversation thread |
+| `generate_space_config` | Config Generation | Generate a complete Genie space config from natural language |
+| `validate_space_config` | Config Generation | Validate a configuration for errors and quality |
+| `extract_table_metadata` | Config Generation | Extract Unity Catalog table metadata for context |
+
+<details>
+<summary>Detailed Tool Documentation (click to expand)</summary>
+
+### Space Management Tools
+
+#### create_genie_space
+Create a new Genie space from JSON configuration.
+
+**Parameters:**
+- `warehouse_id` (string, required): SQL warehouse ID for query execution
+- `serialized_space` (string, required): JSON string containing space configuration
+- `title` (string, optional): Space title
+- `description` (string, optional): Space description
+- `parent_path` (string, optional): Parent path in workspace
+
+**Returns:** JSON with created space details including `space_id`
+
+**Example:**
+```json
+{
+  "space_id": "01ef...",
+  "title": "Sales Analytics",
+  "warehouse_id": "abc123",
+  "created_timestamp": 1234567890
+}
+```
+
+#### list_genie_spaces
+List all Genie spaces in the workspace.
+
+**Parameters:**
+- `page_size` (int, optional): Number of spaces to return per page
+- `page_token` (string, optional): Token for pagination
+
+**Returns:** JSON with array of space summaries and optional `next_page_token`
+
+#### get_genie_space
+Get details of a specific Genie space.
+
+**Parameters:**
+- `space_id` (string, required): Unique identifier for the space
+- `include_config` (bool, optional): Whether to include full configuration (default: true)
+
+**Returns:** JSON with space details including configuration if requested
+
+#### update_genie_space
+Update an existing Genie space.
+
+**Parameters:**
+- `space_id` (string, required): Unique identifier for the space
+- `serialized_space` (string, optional): New JSON configuration
+- `title` (string, optional): New title
+- `description` (string, optional): New description
+- `warehouse_id` (string, optional): New SQL warehouse ID
+
+**Returns:** JSON with updated space details
+
+#### delete_genie_space
+Delete a Genie space (soft delete - moves to trash).
+
+**Parameters:**
+- `space_id` (string, required): Unique identifier for the space to delete
+
+**Returns:** JSON with success confirmation
+
+### Conversation/Query Tools
+
+#### ask_genie
+Ask a question to Genie and wait for the response. Automatically applies rate limiting (5 queries per minute) and polls until the query completes or times out.
+
+**Parameters:**
+- `space_id` (string, required): Unique identifier for the Genie space
+- `question` (string, required): Natural language question to ask
+- `timeout_seconds` (int, optional): Maximum time to wait for response (default: 300)
+- `poll_interval_seconds` (int, optional): Time between status checks (default: 2)
+
+**Returns:** JSON with conversation details, response, SQL query, and results
+
+**Example:**
+```json
+{
+  "conversation_id": "conv123",
+  "message_id": "msg456",
+  "status": "COMPLETED",
+  "response_text": "Here are the top 10 selling products...",
+  "sql_query": "SELECT product_name, COUNT(*) as sales FROM...",
+  "query_result": {
+    "rows": [...],
+    "row_count": 10,
+    "schema": [...]
+  }
+}
+```
+
+#### continue_conversation
+Continue an existing conversation with a follow-up question.
+
+**Parameters:**
+- `space_id` (string, required): Unique identifier for the Genie space
+- `conversation_id` (string, required): ID of the conversation to continue
+- `question` (string, required): Follow-up question
+- `timeout_seconds` (int, optional): Maximum time to wait (default: 300)
+- `poll_interval_seconds` (int, optional): Time between checks (default: 2)
+
+**Returns:** JSON with message details and results (same format as `ask_genie`)
+
+#### get_query_results
+Fetch query result data from a completed message.
+
+**Parameters:**
+- `space_id` (string, required): Unique identifier for the Genie space
+- `conversation_id` (string, required): ID of the conversation
+- `message_id` (string, required): ID of the message with query results
+- `attachment_id` (string, optional): Optional specific attachment ID
+
+**Returns:** JSON with query results (up to 5,000 rows)
+
+#### list_conversations
+List conversations in a Genie space.
+
+**Parameters:**
+- `space_id` (string, required): Unique identifier for the Genie space
+- `page_size` (int, optional): Number of conversations to return (default: 50)
+- `page_token` (string, optional): Token for pagination
+
+**Returns:** JSON with conversation summaries
+
+#### get_conversation_history
+Get all messages in a conversation.
+
+**Parameters:**
+- `space_id` (string, required): Unique identifier for the Genie space
+- `conversation_id` (string, required): ID of the conversation
+
+**Returns:** JSON with complete conversation thread
+
+### Configuration Generation Tools
+
+#### generate_space_config
+Generate a complete Genie space configuration from natural language requirements using an LLM. The generated configuration is automatically validated before being returned.
+
+**Parameters:**
+- `requirements` (string, required): Natural language description of desired Genie space
+- `warehouse_id` (string, required): SQL warehouse ID for query execution
+- `catalog_name` (string, required): Unity Catalog name to use
+- `serving_endpoint_name` (string, optional): Serving endpoint name (uses default if not provided)
+- `validate_sql` (bool, optional): Whether to validate SQL syntax (default: true)
+
+**Returns:** JSON with generated configuration, reasoning, confidence score, and validation report
+
+**Example Input:**
+```
+Create a Genie space for analyzing customer orders.
+- Track order trends over time
+- Analyze customer segments
+- Monitor revenue and product performance
+Tables: main.sales.orders, main.sales.customers
+```
+
+**Example Output:**
+```json
+{
+  "genie_space_config": {
+    "space_name": "Customer Order Analytics",
+    "description": "...",
+    "tables": [...],
+    "instructions": [...],
+    "example_sql_queries": [...]
+  },
+  "reasoning": "This configuration focuses on...",
+  "confidence_score": 0.95,
+  "validation_report": {
+    "valid": true,
+    "errors": [],
+    "warnings": ["Consider adding more example queries"],
+    "score": 85
+  }
+}
+```
+
+#### validate_space_config
+Validate a Genie space configuration using multi-layer validation.
+
+**Validation Layers:**
+1. Schema validation (Pydantic model)
+2. SQL syntax validation (sqlparse)
+3. Instruction quality scoring
+4. Completeness check
+
+**Parameters:**
+- `config` (string, required): JSON string containing Genie space configuration
+- `validate_sql` (bool, optional): Whether to validate SQL syntax (default: true)
+- `catalog_name` (string, optional): Catalog name for context
+
+**Returns:** JSON with validation results
+
+**Score Breakdown:**
+- 90-100: Excellent configuration
+- 80-89: Good configuration with minor improvements
+- 70-79: Acceptable with some warnings
+- 60-69: Needs improvement
+- <60: Significant issues
+
+#### extract_table_metadata
+Extract metadata for Unity Catalog tables. This metadata can be used as context when generating configurations.
+
+**Parameters:**
+- `catalog_name` (string, required): Catalog name in Unity Catalog
+- `schema_name` (string, required): Schema name in Unity Catalog
+- `table_names` (list[string], optional): Specific table names to include (default: all tables in schema)
+
+**Returns:** JSON with table metadata including columns, types, and descriptions
+
+</details>
 
 ## Usage Examples
 
 ### Space Management
+
+**List spaces:**
+```
+List all Genie spaces
+```
+
+**Get space details:**
+```
+Get details for space ID 01ef...
+```
 
 **Create a space:**
 ```python
@@ -148,11 +530,6 @@ create_genie_space(
 )
 ```
 
-**List spaces:**
-```python
-list_genie_spaces(page_size=10)
-```
-
 ### Conversational Queries
 
 **Ask a question:**
@@ -167,6 +544,11 @@ result = await ask_genie(
 # Result includes: conversation_id, message_id, response_text, sql_query, query_result
 ```
 
+In Claude Desktop:
+```
+Ask space [space_id]: "What were total sales last month?"
+```
+
 **Continue conversation:**
 ```python
 result = await continue_conversation(
@@ -178,7 +560,17 @@ result = await continue_conversation(
 
 ### Configuration Generation
 
-**Generate config from requirements:**
+**Generate config:**
+```
+Generate a Genie space config for analyzing sales data. Use tables from main.sales schema: orders, customers, products
+```
+
+**Validate config:**
+```
+Validate this Genie space configuration: [config]
+```
+
+**Generate config from requirements (programmatic):**
 ```python
 result = generate_space_config(
     requirements="""
@@ -242,6 +634,68 @@ The server automatically:
 - Blocks when limit reached
 - Waits until window slides
 
+## Troubleshooting
+
+### Authentication Errors
+
+```
+AuthenticationError: Authentication failed
+```
+
+**Solution**: Check your credentials in `.env`:
+- Verify `DATABRICKS_HOST` is correct (including https://)
+- Ensure `DATABRICKS_TOKEN` is valid (or CLIENT_ID/SECRET)
+- Test with `databricks workspace ls /` using the CLI
+
+### Module Not Found
+
+```
+ModuleNotFoundError: No module named 'genie_mcp_server'
+```
+
+**Solution**:
+- Ensure virtual environment is activated
+- Re-run: `pip install -e .`
+
+### Rate Limit Errors
+
+```
+RateLimitError: Rate limit exceeded
+```
+
+**Solution**: Genie allows 5 queries/minute. Wait 60 seconds or reduce query frequency. Tools automatically handle rate limiting.
+
+### Timeout Errors
+
+```
+TimeoutError: Operation timed out after 300 seconds
+```
+
+**Solution**: Increase `timeout_seconds` parameter for complex queries or set in `.env`: `DATABRICKS_TIMEOUT_SECONDS=600`
+
+### Space Not Found
+
+```
+SpaceNotFoundError: Resource not found
+```
+
+**Solution**: Verify the space_id exists with `list_genie_spaces`.
+
+### Profile Issues (CLI Auth)
+
+**No profiles found:**
+```bash
+# Authenticate with Databricks CLI
+databricks auth login
+./configure.sh
+```
+
+**Profile shows (not configured):**
+```bash
+# Configure the profile
+databricks auth login --profile YOUR_PROFILE_NAME
+```
+
 ## Development
 
 ### Running Tests
@@ -288,47 +742,6 @@ genie-mcp-server/
 ├── pyproject.toml
 └── README.md
 ```
-
-## API Reference
-
-See [TOOLS.md](TOOLS.md) for detailed tool documentation.
-
-## Troubleshooting
-
-### Authentication Errors
-
-```
-AuthenticationError: Authentication failed
-```
-
-**Solution**: Check your credentials in `.env`:
-- Verify `DATABRICKS_HOST` is correct
-- Ensure `DATABRICKS_TOKEN` is valid (or CLIENT_ID/SECRET)
-- Test with `databricks workspace ls /` using the CLI
-
-### Rate Limit Errors
-
-```
-RateLimitError: Rate limit exceeded
-```
-
-**Solution**: Genie allows 5 queries/minute. Wait 60 seconds or reduce query frequency.
-
-### Timeout Errors
-
-```
-TimeoutError: Operation timed out after 300 seconds
-```
-
-**Solution**: Increase `timeout_seconds` parameter for complex queries.
-
-### Space Not Found
-
-```
-SpaceNotFoundError: Resource not found
-```
-
-**Solution**: Verify the space_id exists with `list_genie_spaces`.
 
 ## Contributing
 
