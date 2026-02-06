@@ -40,7 +40,10 @@ def config_to_protobuf(config: GenieSpaceConfig) -> str:
             "sample_questions": [{"id": "...", "question": ["..."]}]
         },
         "instructions": {
-            "text_instructions": [{"id": "...", "content": ["line1\\n", "line2\\n"]}]
+            "text_instructions": [{"id": "...", "content": ["line1\\n"]}],
+            "join_specs": [{"left": {...}, "right": {...}, "sql": ["..."]}],
+            "sql_snippets": {"expressions": [...], "measures": [...], "filters": [...]},
+            "example_question_sqls": [{"id": "...", "question": ["..."], "sql": ["..."]}]
         }
     }
     """
@@ -80,11 +83,11 @@ def config_to_protobuf(config: GenieSpaceConfig) -> str:
             "sample_questions": sample_questions
         }
 
-    # Convert instructions to text_instructions format
-    text_instructions = []
+    # Build instructions section
+    instructions_section: dict[str, Any] = {}
 
-    # Combine all instructions into a single comprehensive instruction
-    if config.instructions or config.example_sql_queries or config.sql_snippets or config.join_specifications:
+    # 1. Convert plain text instructions to text_instructions
+    if config.instructions:
         content_lines = []
 
         # Add business context section
@@ -94,12 +97,11 @@ def config_to_protobuf(config: GenieSpaceConfig) -> str:
         content_lines.append("\n")
 
         # Add plain text instructions
-        if config.instructions:
-            content_lines.append("INSTRUCTIONS:\n")
-            for idx, instruction in enumerate(config.instructions, 1):
-                priority_marker = f" [Priority: {instruction.priority}]" if instruction.priority else ""
-                content_lines.append(f"{idx}. {instruction.content}{priority_marker}\n")
-            content_lines.append("\n")
+        content_lines.append("INSTRUCTIONS:\n")
+        for idx, instruction in enumerate(config.instructions, 1):
+            priority_marker = f" [Priority: {instruction.priority}]" if instruction.priority else ""
+            content_lines.append(f"{idx}. {instruction.content}{priority_marker}\n")
+        content_lines.append("\n")
 
         # Add table information
         if config.tables:
@@ -110,67 +112,123 @@ def config_to_protobuf(config: GenieSpaceConfig) -> str:
                 content_lines.append(f"- {identifier}{desc}\n")
             content_lines.append("\n")
 
-        # Add join specifications
-        if config.join_specifications:
-            content_lines.append("TABLE RELATIONSHIPS:\n")
-            for join in config.join_specifications:
-                content_lines.append(f"- {join.left_table} {join.join_type} JOIN {join.right_table}\n")
-                content_lines.append(f"  ON {join.join_condition}\n")
-                if join.description:
-                    content_lines.append(f"  Description: {join.description}\n")
-                if join.instruction:
-                    content_lines.append(f"  Usage: {join.instruction}\n")
-            content_lines.append("\n")
-
-        # Add SQL snippets
-        if config.sql_snippets:
-            if config.sql_snippets.measures:
-                content_lines.append("MEASURES (Aggregations):\n")
-                for measure in config.sql_snippets.measures:
-                    synonyms = f" (Synonyms: {', '.join(measure.synonyms)})" if measure.synonyms else ""
-                    content_lines.append(f"- {measure.display_name}{synonyms}\n")
-                    content_lines.append(f"  SQL: {measure.sql}\n")
-                    if measure.instruction:
-                        content_lines.append(f"  Usage: {measure.instruction}\n")
-                content_lines.append("\n")
-
-            if config.sql_snippets.expressions:
-                content_lines.append("EXPRESSIONS (Dimensions/Calculated Fields):\n")
-                for expr in config.sql_snippets.expressions:
-                    synonyms = f" (Synonyms: {', '.join(expr.synonyms)})" if expr.synonyms else ""
-                    content_lines.append(f"- {expr.display_name}{synonyms}\n")
-                    content_lines.append(f"  SQL: {expr.sql}\n")
-                    if expr.instruction:
-                        content_lines.append(f"  Usage: {expr.instruction}\n")
-                content_lines.append("\n")
-
-            if config.sql_snippets.filters:
-                content_lines.append("FILTERS (WHERE Conditions):\n")
-                for filter in config.sql_snippets.filters:
-                    synonyms = f" (Synonyms: {', '.join(filter.synonyms)})" if filter.synonyms else ""
-                    content_lines.append(f"- {filter.display_name}{synonyms}\n")
-                    content_lines.append(f"  SQL: {filter.sql}\n")
-                content_lines.append("\n")
-
-        # Add example SQL queries
-        if config.example_sql_queries:
-            content_lines.append("EXAMPLE QUERIES:\n")
-            for idx, example in enumerate(config.example_sql_queries, 1):
-                content_lines.append(f"{idx}. Question: {example.question}\n")
-                content_lines.append(f"   SQL: {example.sql_query}\n")
-                if example.description:
-                    content_lines.append(f"   Note: {example.description}\n")
-            content_lines.append("\n")
-
-        text_instructions.append({
+        instructions_section["text_instructions"] = [{
             "id": generate_id(),
             "content": content_lines
-        })
+        }]
 
-    if text_instructions:
-        protobuf_format["instructions"] = {
-            "text_instructions": text_instructions
-        }
+    # 2. Convert join_specifications to join_specs
+    if config.join_specifications:
+        join_specs = []
+        for join in config.join_specifications:
+            # Parse table names to extract identifier and alias
+            left_parts = join.left_table.split(".")
+            right_parts = join.right_table.split(".")
+
+            # Use last part as alias (table name)
+            left_alias = left_parts[-1] if left_parts else "left_table"
+            right_alias = right_parts[-1] if right_parts else "right_table"
+
+            join_spec = {
+                "id": generate_id(),
+                "left": {
+                    "identifier": join.left_table,
+                    "alias": left_alias
+                },
+                "right": {
+                    "identifier": join.right_table,
+                    "alias": right_alias
+                },
+                "sql": [join.join_condition]
+            }
+
+            # Add optional fields
+            if join.join_type and join.join_type.upper() != "INNER":
+                join_spec["join_type"] = join.join_type.upper()
+
+            if join.description:
+                join_spec["description"] = join.description
+
+            if join.instruction:
+                join_spec["instruction"] = join.instruction
+
+            join_specs.append(join_spec)
+
+        instructions_section["join_specs"] = join_specs
+
+    # 3. Convert sql_snippets to sql_snippets (with proper structure)
+    if config.sql_snippets:
+        sql_snippets_section: dict[str, list] = {}
+
+        # Convert measures
+        if config.sql_snippets.measures:
+            measures = []
+            for measure in config.sql_snippets.measures:
+                measure_obj = {
+                    "id": generate_id(),
+                    "alias": measure.alias,
+                    "sql": [measure.sql],  # Convert to array
+                    "display_name": measure.display_name
+                }
+                if measure.synonyms:
+                    measure_obj["synonyms"] = measure.synonyms
+                if measure.instruction:
+                    measure_obj["instruction"] = measure.instruction
+                measures.append(measure_obj)
+            sql_snippets_section["measures"] = measures
+
+        # Convert expressions
+        if config.sql_snippets.expressions:
+            expressions = []
+            for expr in config.sql_snippets.expressions:
+                expr_obj = {
+                    "id": generate_id(),
+                    "alias": expr.alias,
+                    "sql": [expr.sql],  # Convert to array
+                    "display_name": expr.display_name
+                }
+                if expr.synonyms:
+                    expr_obj["synonyms"] = expr.synonyms
+                if expr.instruction:
+                    expr_obj["instruction"] = expr.instruction
+                expressions.append(expr_obj)
+            sql_snippets_section["expressions"] = expressions
+
+        # Convert filters
+        if config.sql_snippets.filters:
+            filters = []
+            for filter_item in config.sql_snippets.filters:
+                filter_obj = {
+                    "id": generate_id(),
+                    "sql": [filter_item.sql],  # Convert to array
+                    "display_name": filter_item.display_name
+                }
+                if filter_item.synonyms:
+                    filter_obj["synonyms"] = filter_item.synonyms
+                filters.append(filter_obj)
+            sql_snippets_section["filters"] = filters
+
+        if sql_snippets_section:
+            instructions_section["sql_snippets"] = sql_snippets_section
+
+    # 4. Convert example_sql_queries to example_question_sqls
+    if config.example_sql_queries:
+        example_question_sqls = []
+        for example in config.example_sql_queries:
+            example_obj = {
+                "id": generate_id(),
+                "question": [example.question],
+                "sql": [example.sql_query]  # Convert to array
+            }
+            if example.description:
+                example_obj["description"] = example.description
+            example_question_sqls.append(example_obj)
+
+        instructions_section["example_question_sqls"] = example_question_sqls
+
+    # Add instructions section if not empty
+    if instructions_section:
+        protobuf_format["instructions"] = instructions_section
 
     return json.dumps(protobuf_format)
 

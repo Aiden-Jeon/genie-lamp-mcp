@@ -125,7 +125,8 @@ check_databricks_cli() {
 # Get Databricks profiles as array
 get_databricks_profiles() {
     if check_databricks_cli; then
-        databricks auth profiles 2>/dev/null | grep -v "^$" || echo ""
+        # Skip header line and extract profile names only
+        databricks auth profiles 2>/dev/null | tail -n +2 | grep -v "^$" || echo ""
     else
         echo ""
     fi
@@ -134,23 +135,78 @@ get_databricks_profiles() {
 # Get host from Databricks CLI profile
 get_host_from_profile() {
     local profile=$1
-    if check_databricks_cli && [ -n "$profile" ]; then
-        databricks auth env --profile "$profile" 2>/dev/null | grep DATABRICKS_HOST | cut -d'=' -f2 | tr -d '"' || echo ""
-    else
+    if ! check_databricks_cli || [ -z "$profile" ]; then
         echo ""
+        return
     fi
+
+    # Try parsing JSON output from databricks auth env
+    local host=$(databricks auth env --profile "$profile" 2>/dev/null | grep -o '"DATABRICKS_HOST": *"[^"]*"' | cut -d'"' -f4)
+
+    # Fallback: read directly from ~/.databrickscfg
+    if [ -z "$host" ] && [ -f ~/.databrickscfg ]; then
+        # Find the profile section and extract host
+        host=$(awk -v profile="[$profile]" '
+            $0 == profile { found=1; next }
+            found && /^\[/ { found=0 }
+            found && /^host/ {
+                sub(/^host[[:space:]]*=[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print;
+                exit
+            }
+        ' ~/.databrickscfg)
+    fi
+
+    # Remove trailing slash if present
+    host=$(echo "$host" | sed 's:/*$::')
+
+    echo "$host"
 }
 
 # Get profile details
 get_profile_details() {
     local profile=$1
-    if check_databricks_cli && [ -n "$profile" ]; then
-        local host=$(get_host_from_profile "$profile")
-        local auth_type=$(databricks auth env --profile "$profile" 2>/dev/null | grep DATABRICKS_AUTH_TYPE | cut -d'=' -f2 | tr -d '"' || echo "unknown")
-        echo "$host|$auth_type"
-    else
+    if ! check_databricks_cli || [ -z "$profile" ]; then
         echo "|"
+        return
     fi
+
+    local env_output=$(databricks auth env --profile "$profile" 2>/dev/null)
+    local host=$(echo "$env_output" | grep -o '"DATABRICKS_HOST": *"[^"]*"' | cut -d'"' -f4)
+    local auth_type=$(echo "$env_output" | grep -o '"DATABRICKS_AUTH_TYPE": *"[^"]*"' | cut -d'"' -f4)
+
+    # Fallback to config file if needed
+    if [ -z "$host" ] && [ -f ~/.databrickscfg ]; then
+        host=$(awk -v profile="[$profile]" '
+            $0 == profile { found=1; next }
+            found && /^\[/ { found=0 }
+            found && /^host/ {
+                sub(/^host[[:space:]]*=[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print;
+                exit
+            }
+        ' ~/.databrickscfg)
+    fi
+
+    if [ -z "$auth_type" ] && [ -f ~/.databrickscfg ]; then
+        auth_type=$(awk -v profile="[$profile]" '
+            $0 == profile { found=1; next }
+            found && /^\[/ { found=0 }
+            found && /^auth_type/ {
+                sub(/^auth_type[[:space:]]*=[[:space:]]*/, "");
+                gsub(/[[:space:]]*$/, "");
+                print;
+                exit
+            }
+        ' ~/.databrickscfg)
+    fi
+
+    host=$(echo "$host" | sed 's:/*$::')
+    auth_type=${auth_type:-"unknown"}
+
+    echo "$host|$auth_type"
 }
 
 # Interactive profile selection
@@ -162,11 +218,13 @@ select_databricks_profile() {
         return 1
     fi
 
-    # Convert profiles to array
+    # Convert profiles to array (extract profile names only)
     local -a profiles=()
     while IFS= read -r line; do
         if [ -n "$line" ]; then
-            profiles+=("$line")
+            # Extract only the profile name (first column)
+            local profile_name=$(echo "$line" | awk '{print $1}')
+            profiles+=("$profile_name")
         fi
     done <<< "$profiles_output"
 
@@ -413,9 +471,6 @@ main() {
     read -p "Max retries (default: 3): " max_retries
     max_retries=${max_retries:-3}
 
-    read -p "Serving endpoint name (default: databricks-dbrx-instruct): " serving_endpoint
-    serving_endpoint=${serving_endpoint:-databricks-dbrx-instruct}
-
     # Create .env file
     cat > .env << EOF
 # Databricks Workspace Configuration
@@ -446,9 +501,6 @@ EOF
 DATABRICKS_TIMEOUT_SECONDS=$timeout
 DATABRICKS_POLL_INTERVAL_SECONDS=$poll_interval
 DATABRICKS_MAX_RETRIES=$max_retries
-
-# Config Generation
-DATABRICKS_SERVING_ENDPOINT_NAME=$serving_endpoint
 EOF
 
     echo ""
@@ -478,7 +530,6 @@ EOF
     echo -e "${BLUE}Timeout:${NC} ${timeout}s"
     echo -e "${BLUE}Poll Interval:${NC} ${poll_interval}s"
     echo -e "${BLUE}Max Retries:${NC} $max_retries"
-    echo -e "${BLUE}Serving Endpoint:${NC} $serving_endpoint"
     echo ""
 
     if [ "$auth_method" = "CLI" ]; then

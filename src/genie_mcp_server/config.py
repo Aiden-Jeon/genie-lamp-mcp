@@ -19,7 +19,7 @@ class DatabricksConfig(BaseSettings):
     timeout_seconds: int = 300
     poll_interval_seconds: int = 2
     max_retries: int = 3
-    serving_endpoint_name: str = "databricks-dbrx-instruct"
+    serving_endpoint_name: str | None = None  # Optional: only needed for deprecated generate_space_config tool
 
     model_config = SettingsConfigDict(
         env_prefix="DATABRICKS_",
