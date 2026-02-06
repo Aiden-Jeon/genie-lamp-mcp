@@ -4,6 +4,7 @@ import json
 from typing import Optional
 
 from genie_mcp_server.client.genie_client import GenieClient
+from genie_mcp_server.models.space import GenieSpaceConfig
 
 # Global client instance - will be set by server.py
 _genie_client: Optional[GenieClient] = None
@@ -35,27 +36,36 @@ def get_genie_client() -> GenieClient:
 
 def create_genie_space(
     warehouse_id: str,
-    serialized_space: str,
+    config_json: str,
     title: Optional[str] = None,
     description: Optional[str] = None,
     parent_path: Optional[str] = None,
 ) -> str:
-    """Create a new Genie space from JSON configuration.
+    """Create a new Genie space from GenieSpaceConfig JSON.
 
     Args:
         warehouse_id: SQL warehouse ID for query execution
-        serialized_space: JSON string containing space configuration
-        title: Optional space title
-        description: Optional space description
+        config_json: JSON string containing GenieSpaceConfig (instructions, tables, examples, etc.)
+        title: Optional space title (defaults to config.space_name)
+        description: Optional space description (defaults to config.description)
         parent_path: Optional parent path in workspace
 
     Returns:
         JSON string with created space details including space_id
+
+    Note:
+        The config is automatically converted to Databricks Protobuf format internally.
+        Use the generate_space_config or get_config_template tools to create valid configs.
     """
     client = get_genie_client()
+
+    # Parse the config JSON into a Pydantic model
+    config_dict = json.loads(config_json)
+    config = GenieSpaceConfig(**config_dict)
+
     result = client.create_space(
         warehouse_id=warehouse_id,
-        serialized_space=serialized_space,
+        config=config,
         title=title,
         description=description,
         parent_path=parent_path,
@@ -78,29 +88,28 @@ def list_genie_spaces(page_size: Optional[int] = None, page_token: Optional[str]
     return json.dumps(result, indent=2)
 
 
-def get_genie_space(space_id: str, include_config: bool = True) -> str:
+def get_genie_space(space_id: str, include_config: bool = False) -> str:
     """Get details of a specific Genie space.
 
     Args:
         space_id: Unique identifier for the space
-        include_config: Whether to include full configuration (serialized_space)
+        include_config: Whether to include full Protobuf configuration (serialized_space)
 
     Returns:
         JSON string with space details including configuration if requested
+
+    Note:
+        The serialized_space field (when included) contains the Databricks Protobuf format
+        with data_sources, sample_questions, and text_instructions.
     """
     client = get_genie_client()
-    result = client.get_space(space_id=space_id)
-
-    if not include_config:
-        # Remove serialized_space from response
-        result.pop("serialized_space", None)
-
+    result = client.get_space(space_id=space_id, include_serialized_space=include_config)
     return json.dumps(result, indent=2)
 
 
 def update_genie_space(
     space_id: str,
-    serialized_space: Optional[str] = None,
+    config_json: Optional[str] = None,
     title: Optional[str] = None,
     description: Optional[str] = None,
     warehouse_id: Optional[str] = None,
@@ -109,18 +118,28 @@ def update_genie_space(
 
     Args:
         space_id: Unique identifier for the space
-        serialized_space: Optional new JSON configuration
+        config_json: Optional new GenieSpaceConfig as JSON string
         title: Optional new title
         description: Optional new description
         warehouse_id: Optional new SQL warehouse ID
 
     Returns:
         JSON string with updated space details
+
+    Note:
+        If config_json is provided, it will be automatically converted to Databricks
+        Protobuf format internally.
     """
     client = get_genie_client()
+
+    config = None
+    if config_json:
+        config_dict = json.loads(config_json)
+        config = GenieSpaceConfig(**config_dict)
+
     result = client.update_space(
         space_id=space_id,
-        serialized_space=serialized_space,
+        config=config,
         title=title,
         description=description,
         warehouse_id=warehouse_id,

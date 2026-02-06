@@ -3,7 +3,7 @@
 A comprehensive Model Context Protocol (MCP) server for Databricks Genie that enables:
 - **Space Management** - Create, update, list, and delete Genie spaces
 - **Conversational Queries** - Ask questions and get SQL results with automatic polling
-- **LLM-Powered Config Generation** - Generate Genie space configurations from natural language requirements
+- **AI-Friendly Config Schema** - Discoverable JSON schema and templates for AI assistants to generate valid configurations
 
 ## Quick Start
 
@@ -84,16 +84,18 @@ Claude will use the `list_genie_spaces` tool automatically.
 - `list_conversations` - List conversations in a space
 - `get_conversation_history` - Get all messages in a conversation thread
 
-### Configuration Generation (3 tools)
-- `generate_space_config` - Generate a complete Genie space config from natural language
+### Configuration Generation (5 tools)
+- `get_config_schema` - Get JSON schema and documentation for creating configs
+- `get_config_template` - Get domain-specific config templates (sales, customer, inventory, etc.)
 - `validate_space_config` - Validate a configuration for errors and quality
 - `extract_table_metadata` - Extract Unity Catalog table metadata for context
+- `generate_space_config` - (Deprecated) Legacy LLM-based generation
 
 **Key Capabilities:**
 - Automatic rate limiting (5 requests/minute)
 - Async polling for long-running queries
 - Multi-layer configuration validation
-- LLM-powered config generation via serving endpoints
+- Schema-driven config generation for AI assistants (no external endpoint needed)
 
 ## Installation
 
@@ -144,7 +146,6 @@ DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
 DATABRICKS_TIMEOUT_SECONDS=300
 DATABRICKS_POLL_INTERVAL_SECONDS=2
 DATABRICKS_MAX_RETRIES=3
-DATABRICKS_SERVING_ENDPOINT_NAME=databricks-dbrx-instruct
 EOF
 
 ./install.sh
@@ -197,7 +198,7 @@ DATABRICKS_TOKEN=dapi...
 # Optional
 DATABRICKS_TIMEOUT_SECONDS=300
 DATABRICKS_POLL_INTERVAL_SECONDS=2
-DATABRICKS_SERVING_ENDPOINT_NAME=databricks-dbrx-instruct
+DATABRICKS_MAX_RETRIES=3
 ```
 
 ### Authentication Methods
@@ -250,7 +251,7 @@ Edit the configuration file:
 ### Restart and Verify
 
 1. Restart Claude Desktop
-2. Verify tools are available - you should see 13 Genie tools in Claude
+2. Verify tools are available - you should see 15 Genie tools in Claude
 3. Test with: "List all Genie spaces in my workspace"
 
 ## API Reference
@@ -269,9 +270,11 @@ Edit the configuration file:
 | `get_query_results` | Conversation/Query | Fetch query results from a completed message |
 | `list_conversations` | Conversation/Query | List conversations in a space |
 | `get_conversation_history` | Conversation/Query | Get all messages in a conversation thread |
-| `generate_space_config` | Config Generation | Generate a complete Genie space config from natural language |
+| `get_config_schema` | Config Generation | Get JSON schema and documentation for creating configs |
+| `get_config_template` | Config Generation | Get domain-specific config templates |
 | `validate_space_config` | Config Generation | Validate a configuration for errors and quality |
 | `extract_table_metadata` | Config Generation | Extract Unity Catalog table metadata for context |
+| `generate_space_config` | Config Generation | (Deprecated) Legacy LLM-based generation |
 
 <details>
 <summary>Detailed Tool Documentation (click to expand)</summary>
@@ -279,16 +282,30 @@ Edit the configuration file:
 ### Space Management Tools
 
 #### create_genie_space
-Create a new Genie space from JSON configuration.
+Create a new Genie space from GenieSpaceConfig JSON.
+
+This is the final step in the configuration workflow:
+1. `get_config_schema` - Get JSON schema for validation
+2. `get_config_template` - Get domain-specific template (optional)
+3. `validate_space_config` - Validate your configuration
+4. `create_genie_space` - Create the space (THIS TOOL)
 
 **Parameters:**
 - `warehouse_id` (string, required): SQL warehouse ID for query execution
-- `serialized_space` (string, required): JSON string containing space configuration
-- `title` (string, optional): Space title
-- `description` (string, optional): Space description
+- `config_json` (string, required): JSON string with GenieSpaceConfig (instructions, tables, examples, SQL snippets)
+- `title` (string, optional): Space title (defaults to config.space_name)
+- `description` (string, optional): Space description (defaults to config.description)
 - `parent_path` (string, optional): Parent path in workspace
 
 **Returns:** JSON with created space details including `space_id`
+
+**Note:** The config is automatically converted to Databricks Protobuf format internally. The configuration includes:
+- Tables to include in the space
+- Plain text instructions for Genie AI
+- Example SQL queries
+- SQL snippets (measures, expressions, filters)
+- Join specifications between tables
+- Benchmark questions for testing
 
 **Example:**
 ```json
@@ -314,21 +331,25 @@ Get details of a specific Genie space.
 
 **Parameters:**
 - `space_id` (string, required): Unique identifier for the space
-- `include_config` (bool, optional): Whether to include full configuration (default: true)
+- `include_config` (bool, optional): Whether to include full Protobuf configuration (default: false)
 
-**Returns:** JSON with space details including configuration if requested
+**Returns:** JSON with space details
+
+**Note:** When `include_config=true`, the `serialized_space` field contains Databricks Protobuf format with data_sources (tables), sample_questions, and text_instructions.
 
 #### update_genie_space
 Update an existing Genie space.
 
 **Parameters:**
 - `space_id` (string, required): Unique identifier for the space
-- `serialized_space` (string, optional): New JSON configuration
+- `config_json` (string, optional): New GenieSpaceConfig as JSON string
 - `title` (string, optional): New title
 - `description` (string, optional): New description
 - `warehouse_id` (string, optional): New SQL warehouse ID
 
 **Returns:** JSON with updated space details
+
+**Note:** Use the same GenieSpaceConfig format as `create_genie_space`.
 
 #### delete_genie_space
 Delete a Genie space (soft delete - moves to trash).
@@ -411,8 +432,77 @@ Get all messages in a conversation.
 
 ### Configuration Generation Tools
 
-#### generate_space_config
-Generate a complete Genie space configuration from natural language requirements using an LLM. The generated configuration is automatically validated before being returned.
+#### get_config_schema
+Get the JSON schema and documentation for Genie space configurations. This is the recommended way for AI assistants to understand how to generate valid configs.
+
+**Parameters:** None
+
+**Returns:** JSON with comprehensive schema documentation including:
+- Full JSON Schema from Pydantic model
+- Required vs optional fields
+- Validation rules and scoring criteria
+- Best practices and guidelines
+- Complete example configuration
+- Usage notes and workflow
+
+**Example Workflow (AI Assistant):**
+```
+1. Call get_config_schema() to understand the structure
+2. Optionally call get_config_template(domain="sales") for a starting point
+3. Generate config based on schema and user requirements
+4. Call validate_space_config() to check quality
+5. Call create_genie_space() to create the space
+```
+
+**Benefits:**
+- No external serving endpoint required
+- Zero additional costs
+- Fast local generation
+- Full schema visibility for AI assistants
+
+#### get_config_template
+Get a pre-configured config template for a specific domain. Templates include domain-appropriate instructions, example queries, and placeholders for customization.
+
+**Parameters:**
+- `domain` (string, optional): Type of analytics space (default: "minimal")
+  - `minimal` - Bare minimum valid config (score ~70)
+  - `sales` - Revenue tracking, transaction analysis, time-based metrics
+  - `customer` - User behavior, segmentation, retention analysis
+  - `inventory` - Stock levels, warehouse operations
+  - `financial` - Budgets, expenses, P&L reporting
+  - `hr` - Headcount, compensation, performance
+
+**Returns:** JSON template with placeholders:
+- `[CATALOG]` - Replace with your Unity Catalog name
+- `[SCHEMA]` - Replace with your schema name
+- `[TABLE_NAME]` - Replace with your table name
+
+**Example:**
+```json
+{
+  "space_name": "Sales Analytics",
+  "description": "Natural language analytics for sales transactions and revenue data",
+  "tables": [
+    {
+      "catalog_name": "[CATALOG]",
+      "schema_name": "[SCHEMA]",
+      "table_name": "[TABLE_NAME]"
+    }
+  ],
+  "instructions": [
+    {
+      "content": "## Date Filtering\nUse `transaction_date` or `order_date` for time-based filtering...",
+      "priority": 1
+    }
+  ],
+  "example_sql_queries": [...]
+}
+```
+
+#### generate_space_config (Deprecated)
+⚠️ **This tool is deprecated.** Use `get_config_schema()` and `get_config_template()` instead.
+
+Generate a complete Genie space configuration from natural language requirements using an external LLM serving endpoint. The generated configuration is automatically validated before being returned.
 
 **Parameters:**
 - `requirements` (string, required): Natural language description of desired Genie space
@@ -560,31 +650,62 @@ result = await continue_conversation(
 
 ### Configuration Generation
 
-**Generate config:**
+#### Recommended Workflow (AI Assistant)
+
+**Ask Claude to create a Genie space:**
 ```
-Generate a Genie space config for analyzing sales data. Use tables from main.sales schema: orders, customers, products
+Create a Genie space for my sales data in main.sales.transactions
 ```
 
-**Validate config:**
+Behind the scenes, Claude will:
+1. Call `get_config_schema()` to understand the format
+2. Call `get_config_template(domain="sales")` to get a starting point
+3. Generate a config by replacing placeholders with your table info
+4. Call `validate_space_config()` to check quality
+5. Call `create_genie_space()` to create the space
+
+**Get the schema:**
 ```
-Validate this Genie space configuration: [config]
+Show me the schema for creating Genie space configs
 ```
 
-**Generate config from requirements (programmatic):**
+**Get a template:**
+```
+Get a sales analytics template for Genie space configuration
+```
+
+#### Programmatic Usage
+
+**Get config schema:**
 ```python
-result = generate_space_config(
-    requirements="""
-    Create a Genie space for analyzing customer orders.
-    - Track order trends over time
-    - Analyze customer segments
-    - Monitor revenue and product performance
-    Tables: main.sales.orders, main.sales.customers, main.sales.products
-    """,
-    warehouse_id="abc123",
-    catalog_name="main"
-)
+import json
 
-# Result includes: genie_space_config, reasoning, confidence_score, validation_report
+# Get the complete schema documentation
+schema = get_config_schema()
+schema_dict = json.loads(schema)
+
+# Access schema components
+print(schema_dict["best_practices"])
+print(schema_dict["validation_rules"])
+print(schema_dict["example"])
+```
+
+**Get a template:**
+```python
+# Get domain-specific template
+template = get_config_template(domain="sales")
+template_dict = json.loads(template)
+
+# Customize the template
+template_dict["tables"][0]["catalog_name"] = "main"
+template_dict["tables"][0]["schema_name"] = "sales"
+template_dict["tables"][0]["table_name"] = "transactions"
+
+# Validate before creating
+validation = validate_space_config(
+    config=json.dumps(template_dict),
+    validate_sql=True
+)
 ```
 
 **Validate a configuration:**
@@ -595,6 +716,8 @@ result = validate_space_config(
 )
 
 # Result includes: valid, errors, warnings, score (0-100)
+print(f"Valid: {result['valid']}")
+print(f"Score: {result['score']}/100")
 ```
 
 **Extract table metadata:**

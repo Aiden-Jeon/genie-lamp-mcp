@@ -20,26 +20,51 @@ genie_client = None
 @mcp.tool()
 def create_genie_space(
     warehouse_id: str,
-    serialized_space: str,
+    config_json: str,
     title: Optional[str] = None,
     description: Optional[str] = None,
     parent_path: Optional[str] = None,
 ) -> str:
-    """Create a new Genie space from JSON configuration.
+    """Create a new Genie space from GenieSpaceConfig JSON.
+
+    This is the final step in the configuration workflow:
+    1. get_config_schema - Get JSON schema for validation
+    2. get_config_template - Get domain-specific template (optional)
+    3. validate_space_config - Validate your configuration
+    4. create_genie_space - Create the space (THIS TOOL)
 
     Args:
         warehouse_id: SQL warehouse ID for query execution
-        serialized_space: JSON string containing space configuration
-        title: Optional space title
-        description: Optional space description
+        config_json: JSON string with GenieSpaceConfig (instructions, tables, examples, SQL snippets)
+        title: Optional space title (defaults to config.space_name)
+        description: Optional space description (defaults to config.description)
         parent_path: Optional parent path in workspace
 
     Returns:
         JSON string with created space details including space_id
+
+    Example config_json:
+        {
+            "space_name": "Sales Analytics",
+            "description": "Natural language querying for sales data",
+            "purpose": "Enable business users to analyze sales trends",
+            "tables": [
+                {"catalog_name": "main", "schema_name": "sales", "table_name": "orders"}
+            ],
+            "instructions": [
+                {"content": "When users ask about revenue, use SUM(amount)"}
+            ],
+            "example_sql_queries": [
+                {"question": "What is total revenue?", "sql_query": "SELECT SUM(amount) FROM orders"}
+            ],
+            "benchmark_questions": [
+                {"question": "What is total revenue last month?"}
+            ]
+        }
     """
     return space_tools.create_genie_space(
         warehouse_id=warehouse_id,
-        serialized_space=serialized_space,
+        config_json=config_json,
         title=title,
         description=description,
         parent_path=parent_path,
@@ -61,15 +86,19 @@ def list_genie_spaces(page_size: Optional[int] = None, page_token: Optional[str]
 
 
 @mcp.tool()
-def get_genie_space(space_id: str, include_config: bool = True) -> str:
+def get_genie_space(space_id: str, include_config: bool = False) -> str:
     """Get details of a specific Genie space.
 
     Args:
         space_id: Unique identifier for the space
-        include_config: Whether to include full configuration (serialized_space)
+        include_config: Whether to include full Protobuf configuration (serialized_space)
 
     Returns:
-        JSON string with space details including configuration if requested
+        JSON string with space details
+
+    Note:
+        When include_config=True, the serialized_space field contains Databricks Protobuf
+        format with data_sources (tables), sample_questions, and text_instructions.
     """
     return space_tools.get_genie_space(space_id=space_id, include_config=include_config)
 
@@ -77,7 +106,7 @@ def get_genie_space(space_id: str, include_config: bool = True) -> str:
 @mcp.tool()
 def update_genie_space(
     space_id: str,
-    serialized_space: Optional[str] = None,
+    config_json: Optional[str] = None,
     title: Optional[str] = None,
     description: Optional[str] = None,
     warehouse_id: Optional[str] = None,
@@ -86,17 +115,20 @@ def update_genie_space(
 
     Args:
         space_id: Unique identifier for the space
-        serialized_space: Optional new JSON configuration
+        config_json: Optional new GenieSpaceConfig as JSON string
         title: Optional new title
         description: Optional new description
         warehouse_id: Optional new SQL warehouse ID
 
     Returns:
         JSON string with updated space details
+
+    Note:
+        Use the same GenieSpaceConfig format as create_genie_space.
     """
     return space_tools.update_genie_space(
         space_id=space_id,
-        serialized_space=serialized_space,
+        config_json=config_json,
         title=title,
         description=description,
         warehouse_id=warehouse_id,
@@ -234,6 +266,89 @@ def get_conversation_history(space_id: str, conversation_id: str) -> str:
 
 
 @mcp.tool()
+def get_config_schema() -> str:
+    """Get the JSON schema and documentation for Genie space configurations.
+
+    Returns complete schema with:
+    - Field definitions and types
+    - Required vs optional fields
+    - Validation rules and scoring criteria
+    - Best practices and guidelines
+    - Complete example configuration
+    - Usage notes and workflow
+
+    Use this to understand how to generate valid Genie space configurations.
+    This is the recommended approach for AI assistants to create configs.
+
+    Workflow:
+    1. Call this tool to get the schema
+    2. Optionally call get_config_template() for a domain-specific starting point
+    3. Generate config based on schema and user requirements
+    4. Validate with validate_space_config()
+    5. Create space with create_genie_space()
+
+    Returns:
+        JSON string with complete schema documentation
+    """
+    import json
+
+    from genie_mcp_server.generators.schema_exporter import get_json_schema
+
+    schema = get_json_schema()
+    return json.dumps(schema, indent=2)
+
+
+@mcp.tool()
+def get_config_template(domain: str = "minimal") -> str:
+    """Get a pre-configured config template for a specific domain.
+
+    Returns a template with domain-appropriate metadata, instructions,
+    example queries, and placeholders for customization.
+
+    Available domains:
+    - minimal: Bare minimum valid config (score ~70)
+    - sales: Revenue tracking, transaction analysis, time-based metrics
+    - customer: User behavior, segmentation, retention analysis
+    - inventory: Stock levels, warehouse operations
+    - financial: Budgets, expenses, P&L reporting
+    - hr: Headcount, compensation, performance
+
+    Placeholders to replace:
+    - [CATALOG]: Your Unity Catalog name
+    - [SCHEMA]: Your schema name
+    - [TABLE_NAME]: Your table name
+
+    After getting a template:
+    1. Replace placeholders with actual values
+    2. Customize instructions based on actual column names
+    3. Validate with validate_space_config()
+    4. Create space with create_genie_space()
+
+    Args:
+        domain: Type of analytics space (minimal/sales/customer/inventory/financial/hr)
+
+    Returns:
+        JSON string with template configuration
+    """
+    import json
+
+    from genie_mcp_server.generators.templates import get_template
+
+    # Validate domain parameter
+    valid_domains = ["minimal", "sales", "customer", "inventory", "financial", "hr"]
+    if domain not in valid_domains:
+        return json.dumps(
+            {
+                "error": f"Invalid domain '{domain}'. Valid options: {', '.join(valid_domains)}",
+                "valid_domains": valid_domains,
+            }
+        )
+
+    template = get_template(domain)
+    return json.dumps(template, indent=2)
+
+
+@mcp.tool()
 def generate_space_config(
     requirements: str,
     warehouse_id: str,
@@ -241,10 +356,23 @@ def generate_space_config(
     serving_endpoint_name: Optional[str] = None,
     validate_sql: bool = True,
 ) -> str:
-    """Generate a Genie space configuration from natural language requirements.
+    """DEPRECATED: Generate a Genie space configuration from natural language requirements.
 
-    This tool uses an LLM to generate a complete Genie space configuration based on
-    your requirements. The generated configuration is validated before being returned.
+    ⚠️ This tool is deprecated because it requires an external serving endpoint.
+
+    Instead, use the recommended workflow:
+    1. get_config_schema() - Get schema and documentation
+    2. get_config_template() - Get domain-specific template (optional)
+    3. Generate config using AI assistant with schema guidance
+    4. validate_space_config() - Validate before creating
+    5. create_genie_space() - Create the space
+
+    This approach:
+    - Eliminates serving endpoint dependency
+    - Zero additional costs
+    - Faster generation (local)
+    - More flexible customization
+    - Better for AI assistants
 
     Args:
         requirements: Natural language description of desired Genie space

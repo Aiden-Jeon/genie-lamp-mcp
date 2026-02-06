@@ -5,6 +5,8 @@ from typing import Any, Optional
 
 from databricks.sdk import WorkspaceClient
 
+from genie_mcp_server.models.protobuf_format import config_to_protobuf
+from genie_mcp_server.models.space import GenieSpaceConfig
 from genie_mcp_server.utils.error_handling import translate_databricks_error
 
 
@@ -23,18 +25,18 @@ class GenieClient:
     def create_space(
         self,
         warehouse_id: str,
-        serialized_space: str,
+        config: GenieSpaceConfig,
         title: Optional[str] = None,
         description: Optional[str] = None,
         parent_path: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Create a new Genie space.
+        """Create a new Genie space with AI configuration.
 
         Args:
             warehouse_id: SQL warehouse ID for query execution
-            serialized_space: JSON string containing space configuration
-            title: Optional space title
-            description: Optional space description
+            config: Genie space configuration (instructions, tables, examples, etc.)
+            title: Optional space title (defaults to config.space_name)
+            description: Optional space description (defaults to config.description)
             parent_path: Optional parent path in workspace
 
         Returns:
@@ -42,10 +44,21 @@ class GenieClient:
 
         Raises:
             GenieError: If space creation fails
+
+        Note:
+            The config is automatically converted to Databricks Protobuf format (version 2)
+            before being sent to the API. This format includes data_sources, sample_questions,
+            and text_instructions.
         """
         try:
-            # Validate that serialized_space is valid JSON
-            json.loads(serialized_space)
+            # Convert our user-friendly config to Databricks Protobuf format
+            serialized_space = config_to_protobuf(config)
+
+            # Use config values as defaults if not explicitly provided
+            if title is None:
+                title = config.space_name
+            if description is None:
+                description = config.description
 
             space = self.genie.create_space(
                 warehouse_id=warehouse_id,
@@ -98,11 +111,14 @@ class GenieClient:
         except Exception as e:
             raise translate_databricks_error(e)
 
-    def get_space(self, space_id: str) -> dict[str, Any]:
+    def get_space(
+        self, space_id: str, include_serialized_space: bool = False
+    ) -> dict[str, Any]:
         """Get details of a specific Genie space.
 
         Args:
             space_id: Space identifier
+            include_serialized_space: Whether to include the full Protobuf configuration
 
         Returns:
             Dictionary with space details
@@ -111,25 +127,31 @@ class GenieClient:
             GenieError: If space not found or retrieval fails
         """
         try:
-            space = self.genie.get_space(space_id=space_id)
+            space = self.genie.get_space(
+                space_id=space_id, include_serialized_space=include_serialized_space
+            )
 
-            return {
+            result = {
                 "space_id": space.space_id,
                 "title": space.title,
                 "description": space.description,
                 "warehouse_id": space.warehouse_id,
-                "serialized_space": space.serialized_space,
                 "owner_user_id": getattr(space, "owner_user_id", None),
                 "created_timestamp": getattr(space, "created_timestamp", None),
                 "updated_timestamp": getattr(space, "updated_timestamp", None),
             }
+
+            if include_serialized_space:
+                result["serialized_space"] = space.serialized_space
+
+            return result
         except Exception as e:
             raise translate_databricks_error(e)
 
     def update_space(
         self,
         space_id: str,
-        serialized_space: Optional[str] = None,
+        config: Optional[GenieSpaceConfig] = None,
         title: Optional[str] = None,
         description: Optional[str] = None,
         warehouse_id: Optional[str] = None,
@@ -138,7 +160,7 @@ class GenieClient:
 
         Args:
             space_id: Space identifier
-            serialized_space: Optional new JSON configuration
+            config: Optional new Genie space configuration
             title: Optional new title
             description: Optional new description
             warehouse_id: Optional new warehouse ID
@@ -148,11 +170,14 @@ class GenieClient:
 
         Raises:
             GenieError: If space not found or update fails
+
+        Note:
+            If config is provided, it will be converted to Databricks Protobuf format.
         """
         try:
-            if serialized_space:
-                # Validate JSON
-                json.loads(serialized_space)
+            serialized_space = None
+            if config:
+                serialized_space = config_to_protobuf(config)
 
             space = self.genie.update_space(
                 space_id=space_id,
@@ -185,7 +210,7 @@ class GenieClient:
             GenieError: If space not found or deletion fails
         """
         try:
-            self.genie.delete_space(space_id=space_id)
+            self.genie.trash_space(space_id=space_id)
             return {"status": "success", "message": f"Space {space_id} deleted successfully"}
         except Exception as e:
             raise translate_databricks_error(e)
