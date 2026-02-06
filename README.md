@@ -4,6 +4,7 @@ A comprehensive Model Context Protocol (MCP) server for Databricks Genie that en
 - **Space Management** - Create, update, list, and delete Genie spaces
 - **Conversational Queries** - Ask questions and get SQL results with automatic polling
 - **AI-Friendly Config Schema** - Discoverable JSON schema and templates for AI assistants to generate valid configurations
+- **🆕 Conversational Skills** - High-level workflows with guided setup, smart conversation tracking, and health monitoring
 
 ## Quick Start
 
@@ -69,6 +70,34 @@ After setup, ask Claude:
 Claude will use the `list_genie_spaces` tool automatically.
 
 ## Features
+
+### 🆕 Conversational Skills (4 prompts)
+
+High-level workflows that bundle common operations into easy-to-use conversational interfaces:
+
+- **`/create-space`** - Guided space creation with auto-warehouse discovery and validation feedback
+  - Quick mode (instant creation), Guided mode (validation feedback), Expert mode (manual editing)
+  - Domain templates (minimal, sales, customer, inventory, financial, hr)
+  - Quality scoring and recommendations
+
+- **`/ask`** - Natural Q&A with automatic conversation tracking
+  - Smart space selection (by ID, name, or last-used)
+  - 30-minute conversation continuity (no need to track conversation IDs)
+  - Adaptive result formatting (tables, summaries, SQL)
+  - Rate limit and timeout handling
+
+- **`/inspect`** - Space analysis and configuration management
+  - Health check (config quality + activity metrics)
+  - Export (save config as JSON for backup/cloning)
+  - Diff (compare two spaces side-by-side)
+  - Find (search spaces by table or keyword)
+
+- **`/bulk`** - Batch operations on multiple spaces
+  - Update (add instructions/tables to multiple spaces)
+  - Delete (pattern matching with dry-run preview)
+  - Dry-run mode for safety
+
+**📚 See [docs/SKILLS_GUIDE.md](docs/SKILLS_GUIDE.md) for detailed usage examples**
 
 ### Space Management (5 tools)
 - `create_genie_space` - Create a new Genie space from JSON configuration

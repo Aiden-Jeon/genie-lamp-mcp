@@ -279,11 +279,102 @@ def protobuf_to_config(protobuf_json: str) -> GenieSpaceConfig:
                 "content": content.strip()
             })
 
+    # Extract join specifications
+    join_specifications = []
+    for join_spec in data.get("instructions", {}).get("join_specs", []):
+        left_identifier = join_spec.get("left", {}).get("identifier", "")
+        right_identifier = join_spec.get("right", {}).get("identifier", "")
+        sql = join_spec.get("sql", [])
+        join_condition = sql[0] if sql else ""
+
+        if left_identifier and right_identifier and join_condition:
+            join_obj = {
+                "left_table": left_identifier,
+                "right_table": right_identifier,
+                "join_condition": join_condition,
+                "join_type": join_spec.get("join_type", "INNER")
+            }
+            if join_spec.get("description"):
+                join_obj["description"] = join_spec["description"]
+            if join_spec.get("instruction"):
+                join_obj["instruction"] = join_spec["instruction"]
+            join_specifications.append(join_obj)
+
+    # Extract SQL snippets
+    sql_snippets = {}
+    snippets_section = data.get("instructions", {}).get("sql_snippets", {})
+
+    # Extract measures
+    measures = []
+    for measure in snippets_section.get("measures", []):
+        sql = measure.get("sql", [])
+        measure_obj = {
+            "alias": measure.get("alias", ""),
+            "sql": sql[0] if sql else "",
+            "display_name": measure.get("display_name", "")
+        }
+        if measure.get("synonyms"):
+            measure_obj["synonyms"] = measure["synonyms"]
+        if measure.get("instruction"):
+            measure_obj["instruction"] = measure["instruction"]
+        measures.append(measure_obj)
+
+    # Extract expressions
+    expressions = []
+    for expr in snippets_section.get("expressions", []):
+        sql = expr.get("sql", [])
+        expr_obj = {
+            "alias": expr.get("alias", ""),
+            "sql": sql[0] if sql else "",
+            "display_name": expr.get("display_name", "")
+        }
+        if expr.get("synonyms"):
+            expr_obj["synonyms"] = expr["synonyms"]
+        if expr.get("instruction"):
+            expr_obj["instruction"] = expr["instruction"]
+        expressions.append(expr_obj)
+
+    # Extract filters
+    filters = []
+    for filter_item in snippets_section.get("filters", []):
+        sql = filter_item.get("sql", [])
+        filter_obj = {
+            "sql": sql[0] if sql else "",
+            "display_name": filter_item.get("display_name", "")
+        }
+        if filter_item.get("synonyms"):
+            filter_obj["synonyms"] = filter_item["synonyms"]
+        filters.append(filter_obj)
+
+    if measures or expressions or filters:
+        sql_snippets = {
+            "measures": measures,
+            "expressions": expressions,
+            "filters": filters
+        }
+
+    # Extract example SQL queries
+    example_sql_queries = []
+    for example in data.get("instructions", {}).get("example_question_sqls", []):
+        question = example.get("question", [])
+        sql = example.get("sql", [])
+        if question and sql:
+            example_obj = {
+                "question": question[0],
+                "sql_query": sql[0]
+            }
+            if example.get("description"):
+                example_obj["description"] = example["description"]
+            example_sql_queries.append(example_obj)
+
     return GenieSpaceConfig(
         space_name="Imported Space",
         description="Imported from Databricks",
         purpose="Configuration imported from existing Genie space",
         tables=tables,
         instructions=instructions,
-        benchmark_questions=benchmark_questions
+        benchmark_questions=benchmark_questions,
+        join_specifications=join_specifications if join_specifications else None,
+        sql_snippets=sql_snippets if sql_snippets else None,
+        example_sql_queries=example_sql_queries if example_sql_queries else None
     )

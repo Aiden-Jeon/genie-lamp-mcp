@@ -441,6 +441,141 @@ def extract_table_metadata(
     )
 
 
+# ============================================================================
+# MCP Prompts (Skills)
+# ============================================================================
+
+from genie_mcp_server.skills import (
+    create_space_skill,
+    ask_skill,
+    inspect_skill,
+    bulk_skill,
+)
+
+
+@mcp.prompt()
+def create_space(
+    catalog_name: str,
+    schema_name: str,
+    table_names: str,
+    warehouse_id: Optional[str] = None,
+    domain: str = "minimal",
+    space_name: Optional[str] = None,
+    quick: bool = False,
+    expert: bool = False,
+) -> list[dict]:
+    """Create a Genie space with guided workflow.
+
+    Quick mode: Create with smart defaults (no validation feedback)
+    Guided mode (default): Step-by-step with validation
+    Expert mode: Return config for manual editing
+
+    Example:
+        catalog_name="main", schema_name="sales", table_names="orders,customers"
+    """
+    result = create_space_skill.run(
+        catalog_name=catalog_name,
+        schema_name=schema_name,
+        table_names=table_names,
+        warehouse_id=warehouse_id,
+        domain=domain,
+        space_name=space_name,
+        quick=quick,
+        expert=expert,
+    )
+    return [{"role": "assistant", "content": {"type": "text", "text": result}}]
+
+
+@mcp.prompt()
+def ask(
+    question: str,
+    space_id: Optional[str] = None,
+    space_name: Optional[str] = None,
+    new_conversation: bool = False,
+    preview_only: bool = False,
+    timeout: int = 300,
+    verbose: bool = False,
+) -> list[dict]:
+    """Ask questions to Genie spaces with smart conversation tracking.
+
+    Automatically continues conversations or starts new ones.
+
+    Example:
+        question="What is total revenue?", space_id="abc123"
+    """
+    result = ask_skill.run(
+        question=question,
+        space_id=space_id,
+        space_name=space_name,
+        new_conversation=new_conversation,
+        preview_only=preview_only,
+        timeout=timeout,
+        verbose=verbose,
+    )
+    return [{"role": "assistant", "content": {"type": "text", "text": result}}]
+
+
+@mcp.prompt()
+def inspect(
+    space_id: str,
+    mode: str = "health",
+    compare_with: Optional[str] = None,
+    search_tables: Optional[str] = None,
+    search_keywords: Optional[str] = None,
+    output_file: Optional[str] = None,
+) -> list[dict]:
+    """Inspect space configuration and health.
+
+    Modes:
+    - health: Analyze config quality and activity
+    - export: Extract config as JSON
+    - diff: Compare two spaces
+    - find: Search spaces by table/keyword
+
+    Example:
+        space_id="abc123", mode="health"
+    """
+    result = inspect_skill.run(
+        space_id=space_id,
+        mode=mode,
+        compare_with=compare_with,
+        search_tables=search_tables,
+        search_keywords=search_keywords,
+        output_file=output_file,
+    )
+    return [{"role": "assistant", "content": {"type": "text", "text": result}}]
+
+
+@mcp.prompt()
+def bulk(
+    operation: str,
+    space_ids: Optional[str] = None,
+    pattern: Optional[str] = None,
+    add_instructions: Optional[str] = None,
+    add_tables: Optional[str] = None,
+    dry_run: bool = True,
+) -> list[dict]:
+    """Bulk operations on multiple spaces.
+
+    Operations:
+    - update: Add instructions/tables to multiple spaces
+    - delete: Delete spaces matching pattern
+    - clone: Duplicate space with modifications
+
+    Example:
+        operation="update", space_ids="abc,def", add_instructions="Use fiscal year"
+    """
+    result = bulk_skill.run(
+        operation=operation,
+        space_ids=space_ids,
+        pattern=pattern,
+        add_instructions=add_instructions,
+        add_tables=add_tables,
+        dry_run=dry_run,
+    )
+    return [{"role": "assistant", "content": {"type": "text", "text": result}}]
+
+
 def main():
     """Main entry point for the MCP server."""
     global workspace_client, genie_client
