@@ -58,12 +58,15 @@ class SpaceOrchestrator:
         # Replace placeholders in instructions
         if "instructions" in config:
             config["instructions"] = [
-                self._replace_placeholders(
-                    instruction,
-                    catalog_name,
-                    schema_name,
-                    table_names[0] if table_names else "table"
-                )
+                {
+                    **instruction,
+                    "content": self._replace_placeholders(
+                        instruction["content"],
+                        catalog_name,
+                        schema_name,
+                        table_names[0] if table_names else "table"
+                    )
+                }
                 for instruction in config["instructions"]
             ]
 
@@ -72,8 +75,8 @@ class SpaceOrchestrator:
             config["example_sql_queries"] = [
                 {
                     "question": example["question"],
-                    "sql": self._replace_placeholders(
-                        example["sql"],
+                    "sql_query": self._replace_placeholders(
+                        example["sql_query"],
                         catalog_name,
                         schema_name,
                         table_names[0] if table_names else "table"
@@ -157,7 +160,14 @@ class SpaceOrchestrator:
         from genie_mcp_server.generators.validator import ConfigValidator
 
         validator = ConfigValidator()
-        validation = validator.validate(config, validate_sql=validate_sql)
+        report = validator.validate_config(config, validate_sql=validate_sql)
+
+        validation = {
+            "valid": report.valid,
+            "errors": report.errors,
+            "warnings": report.warnings,
+            "score": report.score,
+        }
 
         # Calculate quality score
         score = self._calculate_quality_score(config, validation)

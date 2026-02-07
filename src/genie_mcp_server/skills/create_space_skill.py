@@ -34,64 +34,68 @@ def run(
     Returns:
         Formatted markdown result.
     """
-    # Parse table names
-    tables = [t.strip() for t in table_names.split(",") if t.strip()]
-    if not tables:
-        return "❌ **Error:** No tables specified. Provide at least one table name."
-
-    # Step 1: Warehouse discovery
-    client = get_workspace_client()
-    discovery = WarehouseDiscovery(client)
-
-    if not warehouse_id:
-        warehouse_id = discovery.get_recommended_warehouse("development")
-        if not warehouse_id:
-            return (
-                "❌ **Error:** No SQL warehouses available.\n\n"
-                "Please create a warehouse first or specify warehouse_id manually."
-            )
-        warehouse_info = discovery.get_warehouse_info(warehouse_id)
-        warehouse_note = f" (auto-discovered: {warehouse_info['name']})" if warehouse_info else ""
-    else:
-        warehouse_info = discovery.get_warehouse_info(warehouse_id)
-        if not warehouse_info:
-            return f"❌ **Error:** Warehouse ID '{warehouse_id}' not found."
-        warehouse_note = f" ({warehouse_info['name']})"
-
-    # Step 2: Generate config from template
-    orchestrator = SpaceOrchestrator()
-
     try:
-        config = orchestrator.generate_config_from_template(
-            domain=domain,
-            catalog_name=catalog_name,
-            schema_name=schema_name,
-            table_names=tables,
-            space_name=space_name,
-        )
+        # Parse table names
+        tables = [t.strip() for t in table_names.split(",") if t.strip()]
+        if not tables:
+            return "❌ **Error:** No tables specified. Provide at least one table name."
+
+        # Step 1: Warehouse discovery
+        client = get_workspace_client()
+        discovery = WarehouseDiscovery(client)
+
+        if not warehouse_id:
+            warehouse_id = discovery.get_recommended_warehouse("development")
+            if not warehouse_id:
+                return (
+                    "❌ **Error:** No SQL warehouses available.\n\n"
+                    "Please create a warehouse first or specify warehouse_id manually."
+                )
+            warehouse_info = discovery.get_warehouse_info(warehouse_id)
+            warehouse_note = f" (auto-discovered: {warehouse_info['name']})" if warehouse_info else ""
+        else:
+            warehouse_info = discovery.get_warehouse_info(warehouse_id)
+            if not warehouse_info:
+                return f"❌ **Error:** Warehouse ID '{warehouse_id}' not found."
+            warehouse_note = f" ({warehouse_info['name']})"
+
+        # Step 2: Generate config from template
+        orchestrator = SpaceOrchestrator()
+
+        try:
+            config = orchestrator.generate_config_from_template(
+                domain=domain,
+                catalog_name=catalog_name,
+                schema_name=schema_name,
+                table_names=tables,
+                space_name=space_name,
+            )
+        except Exception as e:
+            return f"❌ **Error generating config:** {str(e)}"
+
+        # Step 3: Validate config
+        validation = orchestrator.validate_and_score(config, validate_sql=False)
+
+        # Step 4: Decide on mode
+        if expert:
+            # Expert mode: return config for editing
+            return _format_expert_mode(config, validation, warehouse_id, warehouse_note)
+
+        if quick or validation["score"] >= 80:
+            # Quick mode or high score: create immediately
+            return _create_space(
+                warehouse_id=warehouse_id,
+                config=config,
+                validation=validation,
+                warehouse_note=warehouse_note,
+                quick=quick
+            )
+
+        # Guided mode: show validation feedback
+        return _format_guided_mode(config, validation, warehouse_id, warehouse_note)
+
     except Exception as e:
-        return f"❌ **Error generating config:** {str(e)}"
-
-    # Step 3: Validate config
-    validation = orchestrator.validate_and_score(config, validate_sql=False)
-
-    # Step 4: Decide on mode
-    if expert:
-        # Expert mode: return config for editing
-        return _format_expert_mode(config, validation, warehouse_id, warehouse_note)
-
-    if quick or validation["score"] >= 80:
-        # Quick mode or high score: create immediately
-        return _create_space(
-            warehouse_id=warehouse_id,
-            config=config,
-            validation=validation,
-            warehouse_note=warehouse_note,
-            quick=quick
-        )
-
-    # Guided mode: show validation feedback
-    return _format_guided_mode(config, validation, warehouse_id, warehouse_note)
+        return f"❌ **Error:** {str(e)}"
 
 
 def _create_space(

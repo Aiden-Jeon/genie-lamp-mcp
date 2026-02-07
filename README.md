@@ -4,7 +4,7 @@ A comprehensive Model Context Protocol (MCP) server for Databricks Genie that en
 - **Space Management** - Create, update, list, and delete Genie spaces
 - **Conversational Queries** - Ask questions and get SQL results with automatic polling
 - **AI-Friendly Config Schema** - Discoverable JSON schema and templates for AI assistants to generate valid configurations
-- **🆕 Conversational Skills** - High-level workflows with guided setup, smart conversation tracking, and health monitoring
+- **Conversational Skills** - High-level workflows with guided setup, smart conversation tracking, and health monitoring
 
 ## Quick Start
 
@@ -59,7 +59,7 @@ This will interactively guide you through:
 source .venv/bin/activate
 
 # Check imports
-python -c "from genie_mcp_server import config; print('✓ Config OK')"
+python -c "from genie_mcp_server import config; print('Config OK')"
 ```
 
 ### First Query
@@ -71,7 +71,7 @@ Claude will use the `list_genie_spaces` tool automatically.
 
 ## Features
 
-### 🆕 Conversational Skills (4 prompts)
+### Conversational Skills (4 prompts)
 
 High-level workflows that bundle common operations into easy-to-use conversational interfaces:
 
@@ -96,8 +96,6 @@ High-level workflows that bundle common operations into easy-to-use conversation
   - Update (add instructions/tables to multiple spaces)
   - Delete (pattern matching with dry-run preview)
   - Dry-run mode for safety
-
-**📚 See [docs/SKILLS_GUIDE.md](docs/SKILLS_GUIDE.md) for detailed usage examples**
 
 ### Space Management (5 tools)
 - `create_genie_space` - Create a new Genie space from JSON configuration
@@ -242,7 +240,7 @@ DATABRICKS_MAX_RETRIES=3
 **Personal Access Token**
 - Simple to set up
 - Good for development
-- Generate in Databricks workspace: User Settings → Access Tokens
+- Generate in Databricks workspace: User Settings > Access Tokens
 - Add to `.env`: `DATABRICKS_TOKEN=dapi...`
 
 **OAuth M2M Service Principal**
@@ -251,23 +249,61 @@ DATABRICKS_MAX_RETRIES=3
 - Requires service principal setup in Databricks
 - Add to `.env`: `DATABRICKS_CLIENT_ID` and `DATABRICKS_CLIENT_SECRET`
 
-## Usage with Claude Desktop
+## Usage with Claude Desktop / Claude Code
 
 ### Configuration File Location
 
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Claude Code**: `~/.claude/claude_code_config.json` (or use `claude mcp add`)
 
-### Add MCP Server
+### Option 1: uvx (Recommended)
 
-Edit the configuration file:
+No local clone or virtual environment needed. Just add to your config:
+
+**From git URL:**
 
 ```json
 {
   "mcpServers": {
     "genie": {
-      "command": "/absolute/path/to/genie-mcp-server/.venv/bin/python",
-      "args": ["-m", "genie_mcp_server.server"],
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/Aiden-Jeon/genie-lamp-mcp.git", "genie-mcp-server"],
+      "env": {
+        "DATABRICKS_HOST": "https://your-workspace.cloud.databricks.com",
+        "DATABRICKS_TOKEN": "dapi..."
+      }
+    }
+  }
+}
+```
+
+**If published to PyPI:**
+
+```json
+{
+  "mcpServers": {
+    "genie": {
+      "command": "uvx",
+      "args": ["genie-mcp-server"],
+      "env": {
+        "DATABRICKS_HOST": "https://your-workspace.cloud.databricks.com",
+        "DATABRICKS_TOKEN": "dapi..."
+      }
+    }
+  }
+}
+```
+
+### Option 2: Local venv (for development)
+
+If you cloned the repo and installed locally:
+
+```json
+{
+  "mcpServers": {
+    "genie": {
+      "command": "/absolute/path/to/genie-lamp-mcp/.venv/bin/genie-mcp-server",
       "env": {
         "DATABRICKS_HOST": "https://your-workspace.cloud.databricks.com",
         "DATABRICKS_TOKEN": "dapi..."
@@ -279,9 +315,221 @@ Edit the configuration file:
 
 ### Restart and Verify
 
-1. Restart Claude Desktop
+1. Restart Claude Desktop (or reload Claude Code)
 2. Verify tools are available - you should see 15 Genie tools in Claude
 3. Test with: "List all Genie spaces in my workspace"
+
+## Skills Usage Guide
+
+### `/create-space` - Space Creation Wizard
+
+**Basic Usage** - Create a space with automatic warehouse discovery:
+
+```python
+create_space(
+    catalog_name="main",
+    schema_name="sales",
+    table_names="orders,customers,products"
+)
+```
+
+**Quick Mode** - Skip validation and create immediately:
+
+```python
+create_space(
+    catalog_name="main",
+    schema_name="sales",
+    table_names="orders",
+    domain="sales",
+    quick=True
+)
+```
+
+**Expert Mode** - Get the configuration JSON for manual editing:
+
+```python
+create_space(
+    catalog_name="main",
+    schema_name="sales",
+    table_names="orders",
+    expert=True
+)
+```
+
+**With Custom Settings:**
+
+```python
+create_space(
+    catalog_name="main",
+    schema_name="finance",
+    table_names="transactions,accounts,invoices",
+    warehouse_id="581ed75401284b97",
+    domain="financial",
+    space_name="Q4 Financial Analytics"
+)
+```
+
+**Available Domains:** `minimal` (default), `sales`, `customer`, `inventory`, `financial`, `hr`
+
+### `/ask` - Q&A Assistant
+
+**Basic Usage:**
+
+```python
+ask(
+    question="What is the total revenue for last month?",
+    space_id="01234567-89ab-cdef-0123-456789abcdef"
+)
+```
+
+**By Space Name:**
+
+```python
+ask(
+    question="Show top 10 customers by revenue",
+    space_name="Sales Analytics"
+)
+```
+
+**Follow-up Questions** - The skill automatically continues conversations:
+
+```python
+# First question (starts new conversation)
+ask(question="What is total revenue?", space_id="abc123")
+
+# Follow-up (continues same conversation automatically)
+ask(question="Show breakdown by product category")
+
+# Another follow-up (still same conversation)
+ask(question="Filter to last quarter only")
+```
+
+**Start New Conversation:**
+
+```python
+ask(
+    question="Different topic: show inventory levels",
+    space_id="abc123",
+    new_conversation=True
+)
+```
+
+**Verbose Mode** - Show all rows (not just top 10):
+
+```python
+ask(question="List all products", space_id="abc123", verbose=True)
+```
+
+**Custom Timeout** - For complex queries:
+
+```python
+ask(question="Complex aggregation", space_id="abc123", timeout=600)
+```
+
+### `/inspect` - Space Inspector
+
+**Health Check** - Analyze space configuration and activity:
+
+```python
+inspect(space_id="abc123", mode="health")
+```
+
+Output includes: Overall health score (0-100), configuration metrics, activity metrics, actionable recommendations.
+
+**Export Configuration:**
+
+```python
+inspect(space_id="abc123", mode="export")
+inspect(space_id="abc123", mode="export", output_file="config.json")
+```
+
+**Compare Spaces:**
+
+```python
+inspect(space_id="abc123", mode="diff", compare_with="def456")
+```
+
+**Find Spaces** by table or keyword:
+
+```python
+inspect(space_id="", mode="find", search_tables="orders,customers")
+inspect(space_id="", mode="find", search_keywords="sales,revenue")
+```
+
+### `/bulk` - Bulk Operations
+
+**Update Multiple Spaces:**
+
+```python
+# Dry run first (preview changes)
+bulk(
+    operation="update",
+    space_ids="abc123,def456,ghi789",
+    add_instructions="Always use fiscal year dates",
+    dry_run=True
+)
+
+# Apply changes
+bulk(
+    operation="update",
+    space_ids="abc123,def456,ghi789",
+    add_instructions="Always use fiscal year dates",
+    dry_run=False
+)
+```
+
+**Delete Multiple Spaces:**
+
+```python
+# By explicit IDs (dry run first)
+bulk(operation="delete", space_ids="test1,test2,test3", dry_run=True)
+
+# By pattern matching
+bulk(operation="delete", pattern="test-*", dry_run=True)
+bulk(operation="delete", pattern="*-dev", dry_run=True)
+bulk(operation="delete", pattern="*staging*", dry_run=True)
+```
+
+> **Warning:** Always use `dry_run=True` first to preview deletions!
+
+### Common Workflows
+
+**Create and Validate a Space:**
+
+```python
+# 1. Create space with guided mode
+create_space(catalog_name="main", schema_name="sales", table_names="orders,customers", domain="sales")
+
+# 2. Check health
+inspect(space_id="<space_id>", mode="health")
+
+# 3. Test with questions
+ask(question="What tables are available?", space_id="<space_id>")
+```
+
+**Clone and Modify a Space:**
+
+```python
+# 1. Export existing space config
+inspect(space_id="original-space-id", mode="export", output_file="original_config.json")
+
+# 2. Edit the config file manually
+
+# 3. Create new space with modified config using create_genie_space tool
+```
+
+**Batch Space Management:**
+
+```python
+# 1. Find all spaces using a specific table
+inspect(space_id="", mode="find", search_tables="main.sales.transactions")
+
+# 2. Add common instruction to all found spaces
+bulk(operation="update", space_ids="space1,space2,space3", add_instructions="Always filter to last 365 days", dry_run=True)
+
+# 3. Verify changes
+inspect(space_id="space1", mode="health")
+```
 
 ## API Reference
 
@@ -335,16 +583,6 @@ This is the final step in the configuration workflow:
 - SQL snippets (measures, expressions, filters)
 - Join specifications between tables
 - Benchmark questions for testing
-
-**Example:**
-```json
-{
-  "space_id": "01ef...",
-  "title": "Sales Analytics",
-  "warehouse_id": "abc123",
-  "created_timestamp": 1234567890
-}
-```
 
 #### list_genie_spaces
 List all Genie spaces in the workspace.
@@ -400,22 +638,6 @@ Ask a question to Genie and wait for the response. Automatically applies rate li
 - `poll_interval_seconds` (int, optional): Time between status checks (default: 2)
 
 **Returns:** JSON with conversation details, response, SQL query, and results
-
-**Example:**
-```json
-{
-  "conversation_id": "conv123",
-  "message_id": "msg456",
-  "status": "COMPLETED",
-  "response_text": "Here are the top 10 selling products...",
-  "sql_query": "SELECT product_name, COUNT(*) as sales FROM...",
-  "query_result": {
-    "rows": [...],
-    "row_count": 10,
-    "schema": [...]
-  }
-}
-```
 
 #### continue_conversation
 Continue an existing conversation with a follow-up question.
@@ -474,21 +696,6 @@ Get the JSON schema and documentation for Genie space configurations. This is th
 - Complete example configuration
 - Usage notes and workflow
 
-**Example Workflow (AI Assistant):**
-```
-1. Call get_config_schema() to understand the structure
-2. Optionally call get_config_template(domain="sales") for a starting point
-3. Generate config based on schema and user requirements
-4. Call validate_space_config() to check quality
-5. Call create_genie_space() to create the space
-```
-
-**Benefits:**
-- No external serving endpoint required
-- Zero additional costs
-- Fast local generation
-- Full schema visibility for AI assistants
-
 #### get_config_template
 Get a pre-configured config template for a specific domain. Templates include domain-appropriate instructions, example queries, and placeholders for customization.
 
@@ -501,37 +708,12 @@ Get a pre-configured config template for a specific domain. Templates include do
   - `financial` - Budgets, expenses, P&L reporting
   - `hr` - Headcount, compensation, performance
 
-**Returns:** JSON template with placeholders:
-- `[CATALOG]` - Replace with your Unity Catalog name
-- `[SCHEMA]` - Replace with your schema name
-- `[TABLE_NAME]` - Replace with your table name
-
-**Example:**
-```json
-{
-  "space_name": "Sales Analytics",
-  "description": "Natural language analytics for sales transactions and revenue data",
-  "tables": [
-    {
-      "catalog_name": "[CATALOG]",
-      "schema_name": "[SCHEMA]",
-      "table_name": "[TABLE_NAME]"
-    }
-  ],
-  "instructions": [
-    {
-      "content": "## Date Filtering\nUse `transaction_date` or `order_date` for time-based filtering...",
-      "priority": 1
-    }
-  ],
-  "example_sql_queries": [...]
-}
-```
+**Returns:** JSON template with placeholders: `[CATALOG]`, `[SCHEMA]`, `[TABLE_NAME]`
 
 #### generate_space_config (Deprecated)
-⚠️ **This tool is deprecated.** Use `get_config_schema()` and `get_config_template()` instead.
+> **This tool is deprecated.** Use `get_config_schema()` and `get_config_template()` instead.
 
-Generate a complete Genie space configuration from natural language requirements using an external LLM serving endpoint. The generated configuration is automatically validated before being returned.
+Generate a complete Genie space configuration from natural language requirements using an external LLM serving endpoint.
 
 **Parameters:**
 - `requirements` (string, required): Natural language description of desired Genie space
@@ -541,36 +723,6 @@ Generate a complete Genie space configuration from natural language requirements
 - `validate_sql` (bool, optional): Whether to validate SQL syntax (default: true)
 
 **Returns:** JSON with generated configuration, reasoning, confidence score, and validation report
-
-**Example Input:**
-```
-Create a Genie space for analyzing customer orders.
-- Track order trends over time
-- Analyze customer segments
-- Monitor revenue and product performance
-Tables: main.sales.orders, main.sales.customers
-```
-
-**Example Output:**
-```json
-{
-  "genie_space_config": {
-    "space_name": "Customer Order Analytics",
-    "description": "...",
-    "tables": [...],
-    "instructions": [...],
-    "example_sql_queries": [...]
-  },
-  "reasoning": "This configuration focuses on...",
-  "confidence_score": 0.95,
-  "validation_report": {
-    "valid": true,
-    "errors": [],
-    "warnings": ["Consider adding more example queries"],
-    "score": 85
-  }
-}
-```
 
 #### validate_space_config
 Validate a Genie space configuration using multi-layer validation.
@@ -623,7 +775,6 @@ Get details for space ID 01ef...
 
 **Create a space:**
 ```python
-# Use the create_genie_space tool with JSON config
 config = {
     "space_name": "Sales Analytics",
     "description": "Natural language queries for sales data",
@@ -644,7 +795,7 @@ config = {
 
 create_genie_space(
     warehouse_id="abc123",
-    serialized_space=json.dumps(config),
+    config_json=json.dumps(config),
     title="Sales Analytics"
 )
 ```
@@ -653,14 +804,11 @@ create_genie_space(
 
 **Ask a question:**
 ```python
-# Automatically handles rate limiting and polling
 result = await ask_genie(
     space_id="01ef...",
     question="What were the top 10 selling products last week?",
     timeout_seconds=300
 )
-
-# Result includes: conversation_id, message_id, response_text, sql_query, query_result
 ```
 
 In Claude Desktop:
@@ -679,8 +827,6 @@ result = await continue_conversation(
 
 ### Configuration Generation
 
-#### Recommended Workflow (AI Assistant)
-
 **Ask Claude to create a Genie space:**
 ```
 Create a Genie space for my sales data in main.sales.transactions
@@ -693,80 +839,18 @@ Behind the scenes, Claude will:
 4. Call `validate_space_config()` to check quality
 5. Call `create_genie_space()` to create the space
 
-**Get the schema:**
-```
-Show me the schema for creating Genie space configs
-```
-
-**Get a template:**
-```
-Get a sales analytics template for Genie space configuration
-```
-
-#### Programmatic Usage
-
-**Get config schema:**
-```python
-import json
-
-# Get the complete schema documentation
-schema = get_config_schema()
-schema_dict = json.loads(schema)
-
-# Access schema components
-print(schema_dict["best_practices"])
-print(schema_dict["validation_rules"])
-print(schema_dict["example"])
-```
-
-**Get a template:**
-```python
-# Get domain-specific template
-template = get_config_template(domain="sales")
-template_dict = json.loads(template)
-
-# Customize the template
-template_dict["tables"][0]["catalog_name"] = "main"
-template_dict["tables"][0]["schema_name"] = "sales"
-template_dict["tables"][0]["table_name"] = "transactions"
-
-# Validate before creating
-validation = validate_space_config(
-    config=json.dumps(template_dict),
-    validate_sql=True
-)
-```
-
-**Validate a configuration:**
-```python
-result = validate_space_config(
-    config=json.dumps(config_dict),
-    validate_sql=True
-)
-
-# Result includes: valid, errors, warnings, score (0-100)
-print(f"Valid: {result['valid']}")
-print(f"Score: {result['score']}/100")
-```
-
-**Extract table metadata:**
-```python
-metadata = extract_table_metadata(
-    catalog_name="main",
-    schema_name="sales",
-    table_names=["orders", "customers"]
-)
-
-# Use metadata as context for config generation
-```
-
 ## Architecture
 
 ```
 MCP Server (stdio)
 ├── Space Management Tools (CRUD via Databricks SDK)
 ├── Conversation Tools (async polling, rate limiting)
-└── Config Generation Tools (LLM-powered via serving endpoints)
+├── Config Generation Tools (schema-driven)
+└── Skills (high-level workflow prompts)
+    ├── /create-space  → Space Orchestrator + Warehouse Discovery
+    ├── /ask           → Conversation Manager + Result Formatter
+    ├── /inspect       → Config Analyzer
+    └── /bulk          → Batch Operations
 ```
 
 ### Key Components
@@ -777,6 +861,14 @@ MCP Server (stdio)
 - **sqlparse** - SQL syntax validation
 - **asyncio** - Async polling for long-running queries
 
+### Internal: Config Transformation
+
+The server automatically transforms between two formats:
+- **User-Facing:** `GenieSpaceConfig` (Pydantic model, developer-friendly)
+- **API Format:** Protobuf JSON v2 (Databricks internal format)
+
+The transformation happens transparently inside `create_genie_space` and `update_genie_space`. Users always work with the simpler `GenieSpaceConfig` format.
+
 ### Rate Limiting
 
 Genie API limits: **5 queries per minute** (Public Preview)
@@ -785,6 +877,12 @@ The server automatically:
 - Tracks requests in a sliding window
 - Blocks when limit reached
 - Waits until window slides
+
+### Known Limitations
+
+- **Bulk Update:** Builds modified configs but requires `warehouse_id` which may not be available. Workaround: export config, modify, then use `update_genie_space` directly.
+- **Clone Operation:** Not yet implemented in `/bulk`. Use export + modify + create workflow instead.
+- **Preview-Only Mode:** The `/ask` parameter exists but is not yet implemented.
 
 ## Troubleshooting
 
@@ -837,15 +935,28 @@ SpaceNotFoundError: Resource not found
 
 **No profiles found:**
 ```bash
-# Authenticate with Databricks CLI
 databricks auth login
 ./configure.sh
 ```
 
 **Profile shows (not configured):**
 ```bash
-# Configure the profile
 databricks auth login --profile YOUR_PROFILE_NAME
+```
+
+### "No space ID provided and no recent conversation found"
+
+**Solution:** Provide `space_id` or `space_name` explicitly:
+```python
+ask(question="What is revenue?", space_id="abc123")
+```
+
+### "Validation score low"
+
+**Solution:** Review recommendations and improve config:
+```python
+result = create_space(catalog_name="main", schema_name="sales", table_names="orders", expert=True)
+# Add more instructions, examples, SQL snippets, then create manually
 ```
 
 ## Development
@@ -876,6 +987,17 @@ genie-mcp-server/
 │   │   ├── space_tools.py            # Space CRUD operations
 │   │   ├── conversation_tools.py     # Query/conversation tools
 │   │   └── config_gen_tools.py       # Config generation tools
+│   ├── skills/
+│   │   ├── create_space_skill.py     # /create-space workflow
+│   │   ├── ask_skill.py              # /ask workflow
+│   │   ├── inspect_skill.py          # /inspect workflow
+│   │   ├── bulk_skill.py             # /bulk workflow
+│   │   └── utils/
+│   │       ├── warehouse_discovery.py # Auto warehouse selection
+│   │       ├── conversation_manager.py# Conversation state tracking
+│   │       ├── result_formatter.py   # Adaptive result formatting
+│   │       ├── space_orchestrator.py  # Multi-step creation workflows
+│   │       └── config_analyzer.py    # Config quality analysis
 │   ├── client/
 │   │   ├── genie_client.py           # Databricks API wrapper
 │   │   └── polling.py                # Async polling utilities
@@ -885,6 +1007,7 @@ genie-mcp-server/
 │   │   └── prompts.py                # LLM prompt templates
 │   ├── models/
 │   │   ├── space.py                  # Pydantic models
+│   │   ├── protobuf_format.py        # Config <-> Protobuf transformer
 │   │   └── responses.py              # API response models
 │   └── utils/
 │       ├── error_handling.py         # Error translation

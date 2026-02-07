@@ -1,6 +1,7 @@
 """Bulk operations skill for batch updates and management."""
 
 import asyncio
+import json
 import re
 from typing import Optional
 

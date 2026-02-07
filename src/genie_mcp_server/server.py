@@ -463,7 +463,7 @@ def create_space(
     space_name: Optional[str] = None,
     quick: bool = False,
     expert: bool = False,
-) -> list[dict]:
+) -> str:
     """Create a Genie space with guided workflow.
 
     Quick mode: Create with smart defaults (no validation feedback)
@@ -483,7 +483,7 @@ def create_space(
         quick=quick,
         expert=expert,
     )
-    return [{"role": "assistant", "content": {"type": "text", "text": result}}]
+    return result
 
 
 @mcp.prompt()
@@ -495,7 +495,7 @@ def ask(
     preview_only: bool = False,
     timeout: int = 300,
     verbose: bool = False,
-) -> list[dict]:
+) -> str:
     """Ask questions to Genie spaces with smart conversation tracking.
 
     Automatically continues conversations or starts new ones.
@@ -512,7 +512,7 @@ def ask(
         timeout=timeout,
         verbose=verbose,
     )
-    return [{"role": "assistant", "content": {"type": "text", "text": result}}]
+    return result
 
 
 @mcp.prompt()
@@ -523,7 +523,7 @@ def inspect(
     search_tables: Optional[str] = None,
     search_keywords: Optional[str] = None,
     output_file: Optional[str] = None,
-) -> list[dict]:
+) -> str:
     """Inspect space configuration and health.
 
     Modes:
@@ -543,7 +543,7 @@ def inspect(
         search_keywords=search_keywords,
         output_file=output_file,
     )
-    return [{"role": "assistant", "content": {"type": "text", "text": result}}]
+    return result
 
 
 @mcp.prompt()
@@ -554,7 +554,7 @@ def bulk(
     add_instructions: Optional[str] = None,
     add_tables: Optional[str] = None,
     dry_run: bool = True,
-) -> list[dict]:
+) -> str:
     """Bulk operations on multiple spaces.
 
     Operations:
@@ -573,7 +573,7 @@ def bulk(
         add_tables=add_tables,
         dry_run=dry_run,
     )
-    return [{"role": "assistant", "content": {"type": "text", "text": result}}]
+    return result
 
 
 def main():
