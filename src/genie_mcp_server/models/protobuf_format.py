@@ -129,6 +129,11 @@ def config_to_protobuf(config: GenieSpaceConfig) -> str:
             left_alias = left_parts[-1] if left_parts else "left_table"
             right_alias = right_parts[-1] if right_parts else "right_table"
 
+            # Build SQL condition with join type prefix for non-INNER joins
+            join_sql = join.join_condition
+            if join.join_type and join.join_type.upper() != "INNER":
+                join_sql = f"{join.join_type.upper()} JOIN: {join.join_condition}"
+
             join_spec = {
                 "id": generate_id(),
                 "left": {
@@ -139,18 +144,17 @@ def config_to_protobuf(config: GenieSpaceConfig) -> str:
                     "identifier": join.right_table,
                     "alias": right_alias
                 },
-                "sql": [join.join_condition]
+                "sql": [join_sql]
             }
 
-            # Add optional fields
-            if join.join_type and join.join_type.upper() != "INNER":
-                join_spec["join_type"] = join.join_type.upper()
-
+            # Build instruction array from description and/or instruction
+            instruction_parts = []
             if join.description:
-                join_spec["description"] = join.description
-
+                instruction_parts.append(join.description)
             if join.instruction:
-                join_spec["instruction"] = join.instruction
+                instruction_parts.append(join.instruction)
+            if instruction_parts:
+                join_spec["instruction"] = instruction_parts
 
             join_specs.append(join_spec)
 
@@ -173,7 +177,7 @@ def config_to_protobuf(config: GenieSpaceConfig) -> str:
                 if measure.synonyms:
                     measure_obj["synonyms"] = measure.synonyms
                 if measure.instruction:
-                    measure_obj["instruction"] = measure.instruction
+                    measure_obj["instruction"] = [measure.instruction]
                 measures.append(measure_obj)
             sql_snippets_section["measures"] = measures
 
@@ -190,7 +194,7 @@ def config_to_protobuf(config: GenieSpaceConfig) -> str:
                 if expr.synonyms:
                     expr_obj["synonyms"] = expr.synonyms
                 if expr.instruction:
-                    expr_obj["instruction"] = expr.instruction
+                    expr_obj["instruction"] = [expr.instruction]
                 expressions.append(expr_obj)
             sql_snippets_section["expressions"] = expressions
 
@@ -220,8 +224,7 @@ def config_to_protobuf(config: GenieSpaceConfig) -> str:
                 "question": [example.question],
                 "sql": [example.sql_query]  # Convert to array
             }
-            if example.description:
-                example_obj["description"] = example.description
+            # Note: description is not a valid protobuf field for example_question_sqls
             example_question_sqls.append(example_obj)
 
         instructions_section["example_question_sqls"] = example_question_sqls
@@ -229,6 +232,27 @@ def config_to_protobuf(config: GenieSpaceConfig) -> str:
     # Add instructions section if not empty
     if instructions_section:
         protobuf_format["instructions"] = instructions_section
+
+    # Sort all arrays by 'id' field (Databricks API requires sorted entries)
+    # Sort tables by identifier
+    if "data_sources" in protobuf_format and "tables" in protobuf_format["data_sources"]:
+        protobuf_format["data_sources"]["tables"].sort(key=lambda t: t.get("identifier", ""))
+
+    # Sort sample_questions by id
+    if "config" in protobuf_format and "sample_questions" in protobuf_format.get("config", {}):
+        protobuf_format["config"]["sample_questions"].sort(key=lambda q: q.get("id", ""))
+
+    # Sort instructions sub-sections by id
+    instr = protobuf_format.get("instructions", {})
+    for key in ["text_instructions", "join_specs", "example_question_sqls"]:
+        if key in instr:
+            instr[key].sort(key=lambda item: item.get("id", ""))
+
+    # Sort sql_snippets sub-sections by id
+    snippets = instr.get("sql_snippets", {})
+    for key in ["measures", "expressions", "filters"]:
+        if key in snippets:
+            snippets[key].sort(key=lambda item: item.get("id", ""))
 
     return json.dumps(protobuf_format)
 
@@ -294,10 +318,12 @@ def protobuf_to_config(protobuf_json: str) -> GenieSpaceConfig:
                 "join_condition": join_condition,
                 "join_type": join_spec.get("join_type", "INNER")
             }
-            if join_spec.get("description"):
-                join_obj["description"] = join_spec["description"]
-            if join_spec.get("instruction"):
-                join_obj["instruction"] = join_spec["instruction"]
+            # instruction is stored as an array in protobuf format
+            instruction_arr = join_spec.get("instruction", [])
+            if isinstance(instruction_arr, str):
+                instruction_arr = [instruction_arr]
+            if instruction_arr:
+                join_obj["instruction"] = " ".join(instruction_arr)
             join_specifications.append(join_obj)
 
     # Extract SQL snippets
